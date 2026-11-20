@@ -19,6 +19,14 @@ final class DesktopView: UIView {
     private var lastTimestamp: CFTimeInterval = 0
     private var accumulator: Double = 0
 
+    /// Formateador del reloj de la barra: se crea una sola vez (antes se
+    /// construía uno nuevo en cada fotograma, 60–120 veces por segundo).
+    private static let clockFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
     private enum TouchContext {
         /// velocity va en pt/s (suavizado exponencial de las muestras).
         case stickman(stickman: Stickman, part: Joint, offset: CGPoint, last: CGPoint, lastTime: CFTimeInterval, velocity: CGPoint)
@@ -27,6 +35,10 @@ final class DesktopView: UIView {
     private var touchContexts: [ObjectIdentifier: TouchContext] = [:]
     /// Posiciones de todos los dedos activos, para la IA de represalia.
     private var fingerPositions: [ObjectIdentifier: CGPoint] = [:]
+    /// Velocidad suavizada de cada dedo (pt/s) y su última muestra:
+    /// la mente (v4) percibe si el cursor se acerca rápido.
+    private var fingerVelocities: [ObjectIdentifier: CGPoint] = [:]
+    private var fingerSamples: [ObjectIdentifier: (point: CGPoint, time: CFTimeInterval)] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -117,21 +129,124 @@ final class DesktopView: UIView {
         drawFireballs(ctx, simulation: simulation)
         drawParticles(ctx, simulation: simulation)
         drawChargeGlows(ctx, simulation: simulation)
+        // El cursor va por encima de todo: es el dedo del usuario.
+        drawCursors(ctx)
+    }
+
+    // MARK: - Cursor visible (v4)
+
+    /// En el original se ve la flecha del ratón y los stickmen
+    /// interactúan con ella; aquí el dedo ES el cursor, así que se
+    /// dibuja una flecha estilo PC en cada dedo activo — y una mano
+    /// agarrando cuando ese dedo lleva a un stickman.
+    private func drawCursors(_ ctx: CGContext) {
+        for (key, point) in fingerPositions {
+            var grabbing = false
+            if let context = touchContexts[key], case .stickman = context {
+                grabbing = true
+            }
+            if grabbing {
+                drawGrabHand(ctx, at: point)
+            } else {
+                drawArrowCursor(ctx, at: point)
+            }
+        }
+    }
+
+    /// Flecha clásica de ratón: blanca con borde oscuro y su punta
+    /// exactamente en la posición del dedo.
+    private func drawArrowCursor(_ ctx: CGContext, at point: CGPoint) {
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 1, height: 2), blur: 3, color: UIColor.black.withAlphaComponent(0.35).cgColor)
+        ctx.beginPath()
+        ctx.move(to: point)
+        ctx.addLine(to: CGPoint(x: point.x, y: point.y + 34))
+        ctx.addLine(to: CGPoint(x: point.x + 9, y: point.y + 25))
+        ctx.addLine(to: CGPoint(x: point.x + 14, y: point.y + 37))
+        ctx.addLine(to: CGPoint(x: point.x + 19.5, y: point.y + 34.5))
+        ctx.addLine(to: CGPoint(x: point.x + 14.5, y: point.y + 22.5))
+        ctx.addLine(to: CGPoint(x: point.x + 24, y: point.y + 22.5))
+        ctx.closePath()
+        ctx.setFillColor(UIColor(white: 1, alpha: 0.96).cgColor)
+        ctx.setStrokeColor(UIColor(white: 0.12, alpha: 0.9).cgColor)
+        ctx.setLineWidth(1.8)
+        ctx.setLineJoin(.round)
+        ctx.drawPath(using: .fillStroke)
+        ctx.restoreGState()
+    }
+
+    /// Mano cerrada agarrando: palma redondeada, tres nudillos y pulgar,
+    /// en el mismo estilo blanco con borde oscuro que la flecha.
+    private func drawGrabHand(_ ctx: CGContext, at point: CGPoint) {
+        ctx.saveGState()
+        ctx.setShadow(offset: CGSize(width: 1, height: 2), blur: 3, color: UIColor.black.withAlphaComponent(0.35).cgColor)
+        ctx.setFillColor(UIColor(white: 1, alpha: 0.96).cgColor)
+        // Palma
+        let palm = CGRect(x: point.x - 13, y: point.y - 4, width: 27, height: 25)
+        fillPath(ctx, roundedRectPath(palm, radius: 9))
+        // Nudillos de los dedos cerrados y el pulgar
+        for i in 0..<3 {
+            let cx = point.x - 8 + CGFloat(i) * 8.5
+            ctx.fillEllipse(in: CGRect(x: cx - 5.5, y: point.y - 12, width: 11, height: 11))
+        }
+        ctx.fillEllipse(in: CGRect(x: point.x + 9, y: point.y + 3, width: 11, height: 11))
+        // Borde de la palma
+        ctx.setStrokeColor(UIColor(white: 0.12, alpha: 0.9).cgColor)
+        ctx.setLineWidth(1.6)
+        ctx.addPath(roundedRectPath(palm, radius: 9))
+        ctx.strokePath()
+        ctx.restoreGState()
     }
 
     private func drawWallpaper(_ ctx: CGContext, simulation: Simulation) {
+        // Cielo con degradado de cuatro paradas: azul profundo arriba,
+        // horizonte claro y cálido justo sobre la barra inferior, como
+        // los fondos de escritorio del vídeo de referencia.
         let colors = [
-            UIColor(red: 0.16, green: 0.35, blue: 0.55, alpha: 1).cgColor,
-            UIColor(red: 0.10, green: 0.20, blue: 0.38, alpha: 1).cgColor
+            UIColor(red: 0.07, green: 0.16, blue: 0.33, alpha: 1).cgColor,
+            UIColor(red: 0.14, green: 0.33, blue: 0.56, alpha: 1).cgColor,
+            UIColor(red: 0.33, green: 0.56, blue: 0.73, alpha: 1).cgColor,
+            UIColor(red: 0.66, green: 0.79, blue: 0.85, alpha: 1).cgColor
         ] as CFArray
-        let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
+        let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 0.45, 0.75, 1])!
         ctx.drawLinearGradient(gradient, start: CGPoint(x: 0, y: 0), end: CGPoint(x: 0, y: bounds.height), options: [])
 
-        // Brillo suave en una esquina, como un fondo de escritorio.
+        // Sol suave en la esquina superior derecha (degradado radial).
+        let floorY = bounds.height - CGFloat(C.taskbarHeight)
+        let sunCenter = CGPoint(x: bounds.width * 0.79, y: bounds.height * 0.16)
+        let sunColors = [
+            UIColor(white: 1, alpha: 0.38).cgColor,
+            UIColor(white: 1, alpha: 0).cgColor
+        ] as CFArray
+        let sunGradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: sunColors, locations: [0, 1])!
+        ctx.drawRadialGradient(sunGradient, startCenter: sunCenter, startRadius: 0, endCenter: sunCenter, endRadius: bounds.width * 0.42, options: [])
+
+        // Colinas lejanas: dos siluetas suaves sobre el horizonte.
+        drawHills(ctx, floorY: floorY, width: bounds.width, baseHeight: bounds.height * 0.10, phase: 0, color: UIColor(red: 0.13, green: 0.30, blue: 0.45, alpha: 0.55))
+        drawHills(ctx, floorY: floorY, width: bounds.width, baseHeight: bounds.height * 0.055, phase: 0.45, color: UIColor(red: 0.09, green: 0.23, blue: 0.36, alpha: 0.85))
+    }
+
+    /// Una cordillera de silueta: curvas cuadráticas encadenadas que
+    /// suben y bajan sobre la línea del suelo.
+    private func drawHills(_ ctx: CGContext, floorY: CGFloat, width: CGFloat, baseHeight: CGFloat, phase: CGFloat, color: UIColor) {
         ctx.saveGState()
-        ctx.setFillColor(UIColor(white: 1, alpha: 0.07).cgColor)
-        let glow = CGRect(x: bounds.width * 0.55, y: -bounds.height * 0.25, width: bounds.width * 0.8, height: bounds.height * 0.7)
-        ctx.fillEllipse(in: glow)
+        ctx.setFillColor(color.cgColor)
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: 0, y: floorY))
+        let segments = 4
+        let segmentWidth = width / CGFloat(segments)
+        for i in 0..<segments {
+            let x0 = CGFloat(i) * segmentWidth
+            let up = (i % 2 == 0)
+            let peak = floorY - baseHeight * (up ? 1.0 : 0.45) - baseHeight * phase * (up ? 0.3 : 0)
+            ctx.addQuadCurve(
+                to: CGPoint(x: x0 + segmentWidth, y: floorY - baseHeight * 0.25),
+                control: CGPoint(x: x0 + segmentWidth / 2, y: peak)
+            )
+        }
+        ctx.addLine(to: CGPoint(x: width, y: floorY))
+        ctx.closePath()
+        ctx.fillPath()
         ctx.restoreGState()
     }
 
@@ -199,21 +314,158 @@ final class DesktopView: UIView {
         let titleSize = title.size()
         title.draw(at: CGPoint(x: rect.midX - titleSize.width / 2, y: rect.minY + (CGFloat(C.windowTitleBarHeight) - titleSize.height) / 2))
 
-        // Líneas de contenido, como si hubiera texto dentro.
+        // Contenido según la ventana: cada una sugiere su aplicación
+        // (carpetas, una nota, un reproductor) en vez de líneas genéricas.
+        let content = CGRect(
+            x: rect.minX + 14,
+            y: rect.minY + CGFloat(C.windowTitleBarHeight) + 12,
+            width: rect.width - 28,
+            height: rect.height - CGFloat(C.windowTitleBarHeight) - 24
+        )
+        switch window.title {
+        case "Explorador":
+            drawExplorerContent(ctx, content: content)
+        case "Notas":
+            drawNotesContent(ctx, content: content)
+        case "Música":
+            drawMusicContent(ctx, content: content)
+        default:
+            drawTextLines(ctx, content: content)
+        }
+    }
+
+    /// Líneas de texto genéricas (reserva para ventanas sin contenido propio).
+    private func drawTextLines(_ ctx: CGContext, content: CGRect) {
+        ctx.saveGState()
         ctx.setStrokeColor(UIColor(white: 0.82, alpha: 1).cgColor)
         ctx.setLineWidth(5)
         ctx.setLineCap(.round)
-        var lineY = rect.minY + CGFloat(C.windowTitleBarHeight) + 20
+        var lineY = content.minY + 8
         var index = 0
-        while lineY < rect.maxY - 14 {
+        while lineY < content.maxY - 4 {
             let fraction: CGFloat = [0.86, 0.70, 0.78, 0.55][index % 4]
             ctx.beginPath()
-            ctx.move(to: CGPoint(x: rect.minX + 14, y: lineY))
-            ctx.addLine(to: CGPoint(x: rect.minX + 14 + (rect.width - 28) * fraction, y: lineY))
+            ctx.move(to: CGPoint(x: content.minX, y: lineY))
+            ctx.addLine(to: CGPoint(x: content.minX + content.width * fraction, y: lineY))
             ctx.strokePath()
             lineY += 17
             index += 1
         }
+        ctx.restoreGState()
+    }
+
+    /// Explorador: una rejilla de carpetas con su etiqueta.
+    private func drawExplorerContent(_ ctx: CGContext, content: CGRect) {
+        ctx.saveGState()
+        let folderW: CGFloat = 46
+        let folderH: CGFloat = 34
+        let gapX: CGFloat = 20
+        let gapY: CGFloat = 22
+        var x = content.minX + 2
+        var y = content.minY + 4
+        var drawn = 0
+        while y + folderH + 10 <= content.maxY && drawn < 6 {
+            while x + folderW <= content.maxX && drawn < 6 {
+                // Carpeta: pestaña + cuerpo.
+                ctx.setFillColor(UIColor(red: 0.98, green: 0.78, blue: 0.30, alpha: 1).cgColor)
+                fillPath(ctx, roundedRectPath(CGRect(x: x, y: y, width: folderW * 0.45, height: 10), radius: 4))
+                fillPath(ctx, roundedRectPath(CGRect(x: x, y: y + 7, width: folderW, height: folderH - 7), radius: 5))
+                // Etiqueta bajo la carpeta.
+                ctx.setFillColor(UIColor(white: 0.75, alpha: 1).cgColor)
+                fillPath(ctx, roundedRectPath(CGRect(x: x + 6, y: y + folderH + 4, width: folderW - 12, height: 5), radius: 2.5))
+                x += folderW + gapX
+                drawn += 1
+            }
+            x = content.minX + 2
+            y += folderH + gapY + 6
+        }
+        ctx.restoreGState()
+    }
+
+    /// Notas: un título más marcado y líneas de texto, una con una
+    /// palabra resaltada en amarillo.
+    private func drawNotesContent(_ ctx: CGContext, content: CGRect) {
+        ctx.saveGState()
+        ctx.setLineCap(.round)
+        // Título
+        ctx.setStrokeColor(UIColor(white: 0.35, alpha: 1).cgColor)
+        ctx.setLineWidth(7)
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: content.minX, y: content.minY + 6))
+        ctx.addLine(to: CGPoint(x: content.minX + content.width * 0.55, y: content.minY + 6))
+        ctx.strokePath()
+        // Cuerpo
+        ctx.setStrokeColor(UIColor(white: 0.80, alpha: 1).cgColor)
+        ctx.setLineWidth(5)
+        var lineY = content.minY + 28
+        var index = 0
+        while lineY < content.maxY - 4 {
+            let fraction: CGFloat = [0.92, 0.78, 0.85, 0.6][index % 4]
+            if index == 1 {
+                // Resaltado tras un tramo de la segunda línea.
+                ctx.setFillColor(UIColor(red: 1, green: 0.85, blue: 0.3, alpha: 0.55).cgColor)
+                let hx = content.minX + content.width * 0.3
+                ctx.fill(CGRect(x: hx, y: lineY - 5, width: content.width * 0.28, height: 10))
+            }
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: content.minX, y: lineY))
+            ctx.addLine(to: CGPoint(x: content.minX + content.width * fraction, y: lineY))
+            ctx.strokePath()
+            lineY += 17
+            index += 1
+        }
+        ctx.restoreGState()
+    }
+
+    /// Música: carátula con su disco, título de la pista y barra de
+    /// progreso con su botón de reproducción.
+    private func drawMusicContent(_ ctx: CGContext, content: CGRect) {
+        ctx.saveGState()
+        let albumSize = min(56, content.height - 34)
+        guard albumSize > 20 else { ctx.restoreGState(); return }
+        let album = CGRect(x: content.minX, y: content.minY + 2, width: albumSize, height: albumSize)
+        ctx.setFillColor(UIColor(red: 0.42, green: 0.30, blue: 0.68, alpha: 1).cgColor)
+        fillPath(ctx, roundedRectPath(album, radius: 6))
+        // El disco dentro de la carátula.
+        ctx.setFillColor(UIColor(white: 0.95, alpha: 0.9).cgColor)
+        ctx.fillEllipse(in: CGRect(x: album.midX - 13, y: album.midY - 13, width: 26, height: 26))
+        ctx.setFillColor(UIColor(red: 0.42, green: 0.30, blue: 0.68, alpha: 1).cgColor)
+        ctx.fillEllipse(in: CGRect(x: album.midX - 4, y: album.midY - 4, width: 8, height: 8))
+
+        // Título y artista a la derecha de la carátula.
+        let textX = album.maxX + 12
+        ctx.setLineCap(.round)
+        ctx.setStrokeColor(UIColor(white: 0.35, alpha: 1).cgColor)
+        ctx.setLineWidth(6)
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: textX, y: album.minY + 12))
+        ctx.addLine(to: CGPoint(x: min(content.maxX, textX + content.width * 0.34), y: album.minY + 12))
+        ctx.strokePath()
+        ctx.setStrokeColor(UIColor(white: 0.78, alpha: 1).cgColor)
+        ctx.setLineWidth(5)
+        ctx.beginPath()
+        ctx.move(to: CGPoint(x: textX, y: album.minY + 30))
+        ctx.addLine(to: CGPoint(x: min(content.maxX, textX + content.width * 0.24), y: album.minY + 30))
+        ctx.strokePath()
+
+        // Progreso: pista, parte escuchada y botón.
+        let progressY = album.maxY + 16
+        if progressY < content.maxY - 6 {
+            ctx.setStrokeColor(UIColor(white: 0.85, alpha: 1).cgColor)
+            ctx.setLineWidth(4)
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: content.minX, y: progressY))
+            ctx.addLine(to: CGPoint(x: content.maxX, y: progressY))
+            ctx.strokePath()
+            ctx.setStrokeColor(UIColor(red: 0.65, green: 0.45, blue: 0.85, alpha: 1).cgColor)
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: content.minX, y: progressY))
+            ctx.addLine(to: CGPoint(x: content.minX + content.width * 0.4, y: progressY))
+            ctx.strokePath()
+            ctx.setFillColor(UIColor(red: 0.65, green: 0.45, blue: 0.85, alpha: 1).cgColor)
+            ctx.fillEllipse(in: CGRect(x: content.minX + content.width * 0.4 - 5, y: progressY - 5, width: 10, height: 10))
+        }
+        ctx.restoreGState()
     }
 
     private func drawTaskbar(_ ctx: CGContext, simulation: Simulation) {
@@ -234,13 +486,11 @@ final class DesktopView: UIView {
         startText.draw(at: CGPoint(x: startRect.midX - startSize.width / 2, y: startRect.midY - startSize.height / 2))
 
         // Reloj
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm"
         let clockAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 13),
             .foregroundColor: UIColor(white: 0.9, alpha: 1)
         ]
-        let clock = NSAttributedString(string: formatter.string(from: Date()), attributes: clockAttrs)
+        let clock = NSAttributedString(string: DesktopView.clockFormatter.string(from: Date()), attributes: clockAttrs)
         let clockSize = clock.size()
         clock.draw(at: CGPoint(x: bounds.width - clockSize.width - 14, y: barRect.midY - clockSize.height / 2))
     }
@@ -398,6 +648,9 @@ final class DesktopView: UIView {
 
     private func syncFingerPoints() {
         simulation?.activeFingerPoints = Array(fingerPositions.values)
+        simulation?.cursorSpeed = fingerVelocities.values
+            .map { hypot(Double($0.x), Double($0.y)) }
+            .max() ?? 0
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -406,6 +659,8 @@ final class DesktopView: UIView {
             let point = touch.location(in: self)
             let key = ObjectIdentifier(touch)
             fingerPositions[key] = point
+            fingerSamples[key] = (point, touch.timestamp)
+            fingerVelocities[key] = .zero
 
             // Primero se intenta agarrar un stickman por su articulación
             // más cercana al dedo, entre los que están libres (uno ya
@@ -461,6 +716,21 @@ final class DesktopView: UIView {
             let samples = event?.coalescedTouches(for: touch) ?? [touch]
             let point = samples.last?.location(in: self) ?? touch.location(in: self)
             fingerPositions[key] = point
+            // Velocidad del dedo (todos, agarren o no): la mente la percibe.
+            if var sample = fingerSamples[key] {
+                var velocity = fingerVelocities[key] ?? .zero
+                for s in samples {
+                    let p = s.location(in: self)
+                    let dt = s.timestamp - sample.time
+                    if dt > 0.001 {
+                        let instant = CGPoint(x: (p.x - sample.point.x) / CGFloat(dt), y: (p.y - sample.point.y) / CGFloat(dt))
+                        velocity = CGPoint(x: velocity.x * 0.5 + instant.x * 0.5, y: velocity.y * 0.5 + instant.y * 0.5)
+                    }
+                    sample = (p, s.timestamp)
+                }
+                fingerSamples[key] = sample
+                fingerVelocities[key] = velocity
+            }
             guard let context = touchContexts[key] else { continue }
 
             switch context {
@@ -521,6 +791,8 @@ final class DesktopView: UIView {
         for touch in touches {
             let key = ObjectIdentifier(touch)
             fingerPositions.removeValue(forKey: key)
+            fingerSamples.removeValue(forKey: key)
+            fingerVelocities.removeValue(forKey: key)
             guard let context = touchContexts.removeValue(forKey: key) else { continue }
             if case .stickman(let stickman, _, _, let last, let lastTime, var velocity) = context {
                 // Si el dedo llevaba quieto un instante antes de soltar,

@@ -44,7 +44,9 @@ enum Rig {
     /// La caja del stickman tiene su esquina superior izquierda en (x, y).
     /// Al final se desplaza todo el cuerpo para que el pie más bajo toque
     /// exactamente la parte inferior de la caja, igual que en el original.
-    static func fkJoints(pose: Pose, x: Double, y: Double, headRadius: Double) -> [Joint: CGPoint] {
+    /// Con `applyGrounding: false` ese desplazamiento no se aplica: es el
+    /// caso de estar sentado en un borde, con las piernas colgando (v4).
+    static func fkJoints(pose: Pose, x: Double, y: Double, headRadius: Double, applyGrounding: Bool = true) -> [Joint: CGPoint] {
         var joints: [Joint: CGPoint] = [:]
 
         let hip = CGPoint(x: x + C.stickmanWidth / 2, y: y + C.hipHeightFromTop)
@@ -71,11 +73,13 @@ enum Rig {
         joints[.footL] = polar(from: kneeL, length: C.lowerLegLength, angleDegrees: pose.upperLegL + pose.lowerLegL)
 
         // Ajuste de pies al suelo: el pie más bajo marca la base de la caja.
-        let lowestFootY = max(joints[.footR]?.y ?? 0, joints[.footL]?.y ?? 0)
-        let offsetY = (y + C.stickmanHeight) - lowestFootY - C.stroke / 2
-        for joint in Joint.allCases {
-            if let p = joints[joint] {
-                joints[joint] = CGPoint(x: p.x, y: p.y + offsetY)
+        if applyGrounding {
+            let lowestFootY = max(joints[.footR]?.y ?? 0, joints[.footL]?.y ?? 0)
+            let offsetY = (y + C.stickmanHeight) - lowestFootY - C.stroke / 2
+            for joint in Joint.allCases {
+                if let p = joints[joint] {
+                    joints[joint] = CGPoint(x: p.x, y: p.y + offsetY)
+                }
             }
         }
         return joints

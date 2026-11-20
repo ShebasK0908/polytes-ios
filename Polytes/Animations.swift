@@ -72,6 +72,35 @@ enum Animations {
     /// Dash de supervelocidad: cuerpo inclinado hacia delante, brazos atrás.
     static let dashPose = Pose(torso: -58, hipOffsetY: 0, upperArmR: 40, forearmR: 20, upperArmL: 30, forearmL: 25, upperLegR: 130, lowerLegR: -15, upperLegL: 55, lowerLegL: -25)
 
+    // MARK: - Poses y clips de la mente extendida (v4)
+
+    /// Saludo: un brazo levantado, el otro caído.
+    static let wavePose = Pose(torso: -88, hipOffsetY: 0, upperArmR: -95, forearmR: -35, upperArmL: 118, forearmL: 10, upperLegR: 95, lowerLegR: -10, upperLegL: 85, lowerLegL: -8)
+    /// Alegría: los dos brazos en alto, piernas en semiflexión de salto.
+    static let joyPose = Pose(torso: -92, hipOffsetY: 0, upperArmR: -55, forearmR: -25, upperArmL: -125, forearmL: 25, upperLegR: 100, lowerLegR: -18, upperLegL: 82, lowerLegL: -10)
+    /// Asomarse a un borde: torso inclinado hacia delante y abajo,
+    /// brazos hacia delante, mirando lo que hay debajo.
+    static let peekPose = Pose(torso: -52, hipOffsetY: 0, upperArmR: 150, forearmR: 20, upperArmL: 140, forearmL: 26, upperLegR: 96, lowerLegR: -6, upperLegL: 86, lowerLegL: -4)
+
+    /// Sentado en el borde de una ventana: muslos hacia delante, espinillas
+    /// colgando y balanceándose (las fases de las dos piernas van desfasadas),
+    /// brazos apoyados atrás. La FK no aplica el ajuste de pies al suelo en
+    /// este estado: las piernas cuelgan por debajo de la caja.
+    static let sit = Clip(defaultCycle: 1.6, frames: [
+        Pose(torso: -86, hipOffsetY: 0, upperArmR: 118, forearmR: 42, upperArmL: 108, forearmL: 48, upperLegR: 168, lowerLegR: -78, upperLegL: 174, lowerLegL: -95),
+        Pose(torso: -86, hipOffsetY: 0, upperArmR: 118, forearmR: 42, upperArmL: 108, forearmL: 48, upperLegR: 168, lowerLegR: -88, upperLegL: 174, lowerLegL: -85),
+        Pose(torso: -86, hipOffsetY: 0, upperArmR: 118, forearmR: 42, upperArmL: 108, forearmL: 48, upperLegR: 168, lowerLegR: -98, upperLegL: 174, lowerLegL: -75),
+        Pose(torso: -86, hipOffsetY: 0, upperArmR: 118, forearmR: 42, upperArmL: 108, forearmL: 48, upperLegR: 168, lowerLegR: -88, upperLegL: 174, lowerLegL: -85)
+    ])
+
+    /// Tumbado boca arriba descansando (también es la pose de «en el suelo
+    /// tras una caída» durante la recuperación): cuerpo horizontal a ras
+    /// de suelo, con un respiro apenas visible entre los dos fotogramas.
+    static let rest = Clip(defaultCycle: 2.4, frames: [
+        Pose(torso: 178, hipOffsetY: 0, upperArmR: 96, forearmR: 8, upperArmL: 84, forearmL: -6, upperLegR: 4, lowerLegR: 2, upperLegL: -4, lowerLegL: -2),
+        Pose(torso: 175, hipOffsetY: 0, upperArmR: 96, forearmR: 8, upperArmL: 84, forearmL: -6, upperLegR: 4, lowerLegR: 2, upperLegL: -4, lowerLegL: -2)
+    ])
+
     static let idle = Clip(defaultCycle: 2.0, frames: [
         Pose(torso: -85, hipOffsetY: 0, upperArmR: 59, forearmR: 11, upperArmL: 121, forearmL: -11, upperLegR: 72, lowerLegR: 11, upperLegL: 108, lowerLegL: -11),
         Pose(torso: -85, hipOffsetY: 0, upperArmR: 54, forearmR: 11, upperArmL: 126, forearmL: -11, upperLegR: 72, lowerLegR: 11, upperLegL: 108, lowerLegL: -11),
@@ -102,7 +131,16 @@ enum Animator {
             return
         }
 
-        let clip = s.state == .walk ? Animations.walk : Animations.idle
+        // Clip según el estado (v4): en el suelo tras una caída y al
+        // tumbarse se usa el clip de tumbado; sentado, el de sentado.
+        let clip: Animations.Clip
+        if s.downedTimer > 0 || s.state == .rest {
+            clip = Animations.rest
+        } else if s.state == .sit {
+            clip = Animations.sit
+        } else {
+            clip = s.state == .walk ? Animations.walk : Animations.idle
+        }
 
         if s.state == .walk && !s.holding && !s.flying && s.velocityX != 0 {
             s.animationCycleDuration = C.distancePerWalkCycle / abs(s.velocityX)

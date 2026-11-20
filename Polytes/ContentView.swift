@@ -16,40 +16,44 @@ struct DesktopViewRepresentable: UIViewRepresentable {
     }
 }
 
-/// Pantalla principal: una cabecera fija arriba y el escritorio debajo.
-/// La cabecera NO forma parte del mundo: la vista del escritorio ocupa
-/// solo el espacio bajo ella, así que ningún stickman puede subirse,
-/// pegarse ni quedar oculto tras la barra superior.
+/// Pantalla principal: el escritorio ocupa TODA la pantalla, borde a
+/// borde, como un juego (v4) — sin cabecera fija y sin barra de estado.
+/// El mundo jugable es la pantalla completa: la simulación recibe los
+/// límites enteros de la vista, incluidas las zonas seguras.
+///
+/// Lo único que flota sobre el escritorio es el botón de crear, una
+/// píldora semitransparente en la esquina superior derecha. No es una
+/// superficie: ningún stickman puede subirse a él ni quedarse pegado;
+/// como mucho, pasa por detrás un instante, como en los juegos.
 struct ContentView: View {
     @StateObject private var simulation = Simulation()
     @State private var showingCreator = false
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text("Polytes")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                Spacer()
-                Text("\(simulation.stickmen.count) en escena")
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.75))
-                Button {
-                    showingCreator = true
-                } label: {
-                    Label("Crear stickman", systemImage: "plus.circle.fill")
-                        .font(.subheadline.weight(.semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color(red: 0.05, green: 0.07, blue: 0.12))
-
+        ZStack(alignment: .topTrailing) {
             DesktopViewRepresentable(simulation: simulation)
+                .ignoresSafeArea()
+
+            Button {
+                showingCreator = true
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Crear stickman")
+                    Text("· \(simulation.stickmen.count)")
+                        .foregroundColor(.white.opacity(0.7))
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.38), in: Capsule())
+                .overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 1))
+            }
+            .padding(.top, 10)
+            .padding(.trailing, 12)
         }
-        .ignoresSafeArea()
+        .statusBarHidden(true)
         .sheet(isPresented: $showingCreator) {
             CreatorView(simulation: simulation)
         }

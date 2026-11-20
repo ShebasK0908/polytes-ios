@@ -43,7 +43,7 @@ enum Combat {
         // ¿Explota contra el dedo? El umbral baja con la energía.
         if s.retaliateTimer <= 0 && s.retaliateCooldown <= 0
             && s.opponentID == nil && s.carryingID == nil {
-            let threshold = 55 + Double(100 - s.energy) * 0.3
+            let threshold = 58 + Double(100 - s.energy) * 0.3
             if s.irritation >= threshold {
                 startRetaliation(s, sim: sim)
             }
@@ -64,11 +64,18 @@ enum Combat {
             return
         }
 
-        // En calma: de vez en cuando valora buscar pelea.
-        if s.fightCooldown <= 0 && !s.isRagdollActive && !s.holding {
+        // En calma: de vez en cuando valora buscar pelea. El asustado
+        // no busca pelea (v4), ni quien está sentado, tumbado o en el
+        // suelo tras una caída.
+        if s.fightCooldown <= 0 && !s.isRagdollActive && !s.holding
+            && s.mood != .scared && s.state != .sit && s.state != .rest && s.downedTimer <= 0 {
             s.fightThinkTimer -= dt
             if s.fightThinkTimer <= 0 {
-                s.fightThinkTimer = 1.0
+                // (v4) Valora buscar pelea cada 2,5–4 s en vez de cada
+                // segundo: con la cadencia anterior, en cuanto vencía el
+                // enfriamiento un stickman peleón encadenaba otra pelea
+                // y el escritorio vivía en guerra constante.
+                s.fightThinkTimer = Double.random(in: 2.5...4.0)
                 maybeStartFight(s, sim: sim)
             }
         }
@@ -165,6 +172,7 @@ enum Combat {
             $0.id != s.id && $0.opponentID == nil && $0.retaliateTimer <= 0
                 && !$0.isRagdollActive && !$0.holding && $0.carriedByID == nil
                 && $0.fightCooldown <= 0 && $0.chargingPunch == false
+                && $0.state != .sit && $0.state != .rest && $0.downedTimer <= 0
         }
         guard let opp = candidates.min(by: {
             hypot(Double($0.centerPoint().x - center.x), Double($0.centerPoint().y - center.y))
@@ -174,8 +182,12 @@ enum Combat {
         let dist = hypot(Double(opp.centerPoint().x - center.x), Double(opp.centerPoint().y - center.y))
         guard dist < 560 else { return }
 
-        // Puntuación de agresión: la energía manda; el aburrimiento empuja.
-        let aggression = Double(s.energy) / 100 * 0.55 + s.boredom / 100 * 0.30 + Double.random(in: 0..<0.45)
+        // Puntuación de agresión: la energía manda; el aburrimiento
+        // empuja; la memoria también (v4): si el candidato es quien le
+        // pegó hace poco y sigue irritado, hay ganas de revancha.
+        var aggression = Double(s.energy) / 100 * 0.55 + s.boredom / 100 * 0.30 + Double.random(in: 0..<0.45)
+        if s.mood == .irritated { aggression += 0.12 }
+        if s.lastAttackerID == opp.id { aggression += 0.15 }
         guard aggression > 0.92 else { return }
 
         s.opponentID = opp.id
@@ -210,6 +222,7 @@ enum Combat {
         let dx = Double(oppCenter.x - myCenter.x)
         let dy = Double(oppCenter.y - myCenter.y)
         let adx = abs(dx)
+        let ady = abs(dy)
         s.direction = dx >= 0 ? 1 : -1
 
         // Lleva a su rival en alto: cuenta atrás y lo lanza.
@@ -264,6 +277,13 @@ enum Combat {
             else if roll < 0.60 { castLaser(s, sim: sim, opp: opp) }
             else if roll < 0.85 { startDashRam(s, opp: opp) }
             else { startFlightAttack(s, opp: opp) }
+        } else if ady >= 90 {
+            // Está encima en horizontal pero en otra planta (p. ej. sobre
+            // una ventana): a esa altura no llegan ni el puño ni el
+            // agarre, así que ataca a distancia o vuela a por él.
+            if roll < 0.40 { castFireball(s, sim: sim, opp: opp) }
+            else if roll < 0.70 { castLaser(s, sim: sim, opp: opp) }
+            else { startFlightAttack(s, opp: opp) }
         } else {
             if roll < 0.35 { punch(s, sim: sim, opp: opp) }
             else if roll < 0.55 { startSuperPunch(s) }
@@ -298,6 +318,14 @@ enum Combat {
     /// sigue a distancia de golpeo sale volando; si no, el atacante se
     /// abalanza hacia delante y falla.
     static func updateCharge(_ s: Stickman, sim: Simulation, dt: Double) {
+        // Si pierde el suelo a mitad de carga (la ventana se mueve o se
+        // cae del borde), la carga se cancela: un cuerpo en ragdoll no
+        // puede soltar el superpuñetazo desde el aire.
+        if s.isRagdollActive {
+            s.chargingPunch = false
+            s.chargeTimer = 0
+            return
+        }
         if s.actionPoseTimer <= 0 {
             s.setActionPose(Animations.chargePose, duration: 0.2)
         }
@@ -354,6 +382,14 @@ enum Combat {
     static func startGrabThrow(_ s: Stickman, sim: Simulation, opp: Stickman) {
         if opp.isRagdollActive {
             s.attackCooldown = 0.5
+            return
+        }
+        // El agarre es cuerpo a cuerpo: si el rival está en otra planta
+        // (sobre una ventana, muy por encima o por debajo), no hay
+        // teletransporte — se renuncia y se ataca a distancia luego.
+        let dy = Double(opp.centerPoint().y - s.centerPoint().y)
+        if abs(dy) >= 90 {
+            s.attackCooldown = 0.6
             return
         }
         let dodgeChance = 0.20 + Double(opp.energy) / 500

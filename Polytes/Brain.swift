@@ -16,10 +16,12 @@ struct SplitMix64 {
     }
 }
 
-/// Rasgos fijos de un stickman: energía y curiosidad, de 1 a 100.
+/// Rasgos fijos de un stickman: energía, curiosidad y sociabilidad,
+/// de 1 a 100, todos de la misma semilla (el nombre).
 struct Personality {
     let energy: Int
     let curiosity: Int
+    let sociability: Int
 
     /// Genera la personalidad a partir del nombre (semilla = SHA-256 del
     /// nombre), con los refuerzos del diseño original: la cabeza hueca da
@@ -36,6 +38,10 @@ struct Personality {
 
         var energy = Double(rng.next() % 101)
         var curiosity = Double(rng.next() % 101)
+        // Tercer rasgo de la misma semilla: la sociabilidad (v4), que
+        // modula saludos, seguimientos y ayudas. Sin bonus de cabeza ni
+        // de color: es puramente del nombre.
+        let sociability = Double(rng.next() % 101)
 
         if hollowHead {
             energy *= 1.2
@@ -50,7 +56,11 @@ struct Personality {
 
         energy = clampValue(energy, 1, 100)
         curiosity = clampValue(curiosity, 1, 100)
-        return Personality(energy: Int(energy.rounded()), curiosity: Int(curiosity.rounded()))
+        return Personality(
+            energy: Int(energy.rounded()),
+            curiosity: Int(curiosity.rounded()),
+            sociability: Int(clampValue(sociability, 1, 100).rounded())
+        )
     }
 }
 
@@ -64,7 +74,8 @@ enum Needs {
         let boredomDrain = (Double(s.curiosity) / 50) * dt
         let boredomGain = (Double(s.curiosity) / 30) * dt
 
-        if s.state == .idle {
+        // Sentado en un borde o tumbado también se descansa (v4).
+        if s.state == .idle || s.state == .rest || s.state == .sit {
             s.stamina += staminaGain
             s.boredom += boredomGain
         } else {
@@ -121,7 +132,7 @@ enum Brain {
         }
     }
 
-    private static func score(_ s: Stickman, inverted: Bool) -> Double {
+    static func score(_ s: Stickman, inverted: Bool) -> Double {
         let factors = [Double(s.energy), Double(s.curiosity), s.stamina, s.boredom]
         var utility: Double = 0
         for factor in factors {

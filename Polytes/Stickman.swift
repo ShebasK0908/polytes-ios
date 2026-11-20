@@ -4,6 +4,35 @@ import UIKit
 enum StickmanState {
     case idle
     case walk
+    /// Sentado en el borde de una ventana, con las piernas colgando (v4).
+    case sit
+    /// Tumbado descansando (v4).
+    case rest
+}
+
+/// Humor simple (v4): tiñe qué elige el cerebro y cómo se mueve.
+/// Lo calcula Mind a partir de necesidades, irritación y eventos.
+enum Mood {
+    case content
+    case happy
+    case curious
+    case bored
+    case irritated
+    case scared
+}
+
+/// Conducta en curso elegida por el cerebro extendido (v4). Los datos
+/// de cada conducta (objetivo, fase, temporizador) viven en el stickman.
+enum Behavior {
+    case none
+    case explore
+    case goHome
+    case follow
+    case flee
+    case restUp
+    case sitWindow
+    case helpUp
+    case watchCursor
 }
 
 /// Un stickman completo: identidad, personalidad, necesidades, posición,
@@ -23,6 +52,8 @@ final class Stickman {
     // Personalidad y necesidades
     let energy: Int
     let curiosity: Int
+    /// Sociabilidad (v4): tercer rasgo de la misma semilla del nombre.
+    let sociability: Int
     var stamina: Double = 100
     var boredom: Double = 45
 
@@ -43,6 +74,41 @@ final class Stickman {
     var state: StickmanState = .idle
     var targetX: Double?
     var decideCooldown: Double = C.decideCooldownDefault
+
+    // Mente extendida (v4): humor, memoria y conductas. La lógica vive
+    // en Mind.swift; aquí solo está el estado.
+    var mood: Mood = .content
+    var prevMood: Mood = .content
+    var happyTimer: Double = 0
+    var scaredTimer: Double = 0
+    /// Quién le pegó o lo lanzó por última vez, y durante cuánto lo recuerda.
+    var lastAttackerID: UUID?
+    var lastAttackerTimer: Double = 0
+    /// Su «sitio»: el x donde apareció y donde ha estado tranquilo un rato.
+    var favoriteX: Double
+    /// Zonas del escritorio (6 franjas) que ya ha visitado.
+    var visitedZones: Set<Int> = []
+    var behavior: Behavior = .none
+    var behaviorTimer: Double = 0
+    var behaviorTargetID: UUID?
+    var behaviorTargetX: Double = 0
+    var behaviorPhase: Int = 0
+    var behaviorRetries: Int = 0
+    /// Tiempo en el suelo tras una caída (recuperación, tumbado).
+    var downedTimer: Double = 0
+    /// Velocidad del último aterrizaje (pt por paso), para el susto.
+    var lastLandingSpeed: Double = 0
+    var greetCooldown: Double = 0
+    var startleCooldown: Double = 0
+    /// Asomarse al borde: pausa mirando abajo y decisión pendiente.
+    var peekTimer: Double = 0
+    var peekCooldown: Double = 0
+    var peekPendingTurnBack: Bool?
+    /// Tiempo seguido en calma (para fijar su sitio favorito).
+    var calmTimer: Double = 0
+    /// Ventana en cuyo borde está sentado y altura de su borde superior.
+    var sitWindowID: UUID?
+    var sitGroundY: Double = 0
 
     // Cuerpo físico
     var holding = false
@@ -87,6 +153,8 @@ final class Stickman {
     var poweredFlight = false
     var flightTarget: CGPoint?
     var flightTimer: Double = 0
+    /// Duración total del vuelo en curso (para la rampa de despegue).
+    var flightDuration: Double = 0
     var flightAttackTargetID: UUID?
     /// Superfuerza: a quién lleva en alto y quién lo lleva a él.
     var carryingID: UUID?
@@ -125,13 +193,17 @@ final class Stickman {
         let personality = Personality.generate(name: name, hollowHead: hollowHead, hueDegrees: hueDegrees)
         self.energy = personality.energy
         self.curiosity = personality.curiosity
+        self.sociability = personality.sociability
+        self.favoriteX = spawnX
 
         self.ragPoints = BodyPhysics.makeRagPoints(from: fkJoints())
     }
 
     /// Articulaciones según la animación (cinemática directa), sin espejo.
+    /// Sentado no se aplica el ajuste de pies al suelo de la FK: sus
+    /// piernas cuelgan por debajo de la caja, sobre el borde.
     func fkJoints() -> [Joint: CGPoint] {
-        Rig.fkJoints(pose: currentPose, x: x, y: y, headRadius: headRadius)
+        Rig.fkJoints(pose: currentPose, x: x, y: y, headRadius: headRadius, applyGrounding: state != .sit)
     }
 
     /// Articulaciones tal y como se ven en pantalla: en modo físico son los
@@ -220,16 +292,34 @@ final class Stickman {
         poweredFlight = true
         flightTarget = target
         flightTimer = duration
+        flightDuration = duration
+        // Impulso inicial suave: el resto del despegue lo hace la rampa
+        // de asistencia de la dirección (ver steerFlight), sin tirón.
         for point in ragPoints.values {
-            point.old.y = point.pos.y + 4
+            point.old.y = point.pos.y + 2.5
         }
     }
 
     /// Corta el vuelo con motor: el cuerpo sigue en ragdoll y cae.
+    /// Antes de caer frena la velocidad media del cuerpo (conservando
+    /// el giro), para que el aterrizaje no empiece a velocidad de
+    /// crucero y el stickman no salga despedido al tocar el suelo.
     func cutPoweredFlight() {
+        if poweredFlight && flying && !ragPoints.isEmpty {
+            let points = Array(ragPoints.values)
+            let count = Double(points.count)
+            let meanVX = points.reduce(0) { $0 + Double($1.velocity.x) } / count
+            let meanVY = points.reduce(0) { $0 + Double($1.velocity.y) } / count
+            for point in points {
+                let vx = Double(point.velocity.x) - meanVX * 0.55
+                let vy = Double(point.velocity.y) - meanVY * 0.55
+                point.old = CGPoint(x: point.pos.x - CGFloat(vx), y: point.pos.y - CGFloat(vy))
+            }
+        }
         poweredFlight = false
         flightTarget = nil
         flightTimer = 0
+        flightDuration = 0
         flightAttackTargetID = nil
     }
 }

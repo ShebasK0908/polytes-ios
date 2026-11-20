@@ -66,9 +66,9 @@ enum C {
     // MARK: - Combate y poderes (v3)
 
     /// Irritación que suma cada agarre del dedo.
-    static let irritationGrabGain: Double = 22
+    static let irritationGrabGain: Double = 18
     /// Irritación que se enfría por segundo cuando no hay represalia activa.
-    static let irritationDecayPerSecond: Double = 3.5
+    static let irritationDecayPerSecond: Double = 4.0
     /// Duración de la represalia contra el dedo.
     static let retaliationDuration: Double = 3.2
     /// Tiempo tras una represalia en el que no puede volver a explotar.
@@ -76,8 +76,10 @@ enum C {
     /// Duración máxima de una pelea antes de darla por terminada.
     static let fightMaxDuration: Double = 14
     /// Cooldown de peleas tras cada enfrentamiento (rango aleatorio).
-    static let fightCooldownMin: Double = 22
-    static let fightCooldownMax: Double = 38
+    /// (v4: más largo, para que el escritorio se sienta vivo pero no
+    /// en guerra constante.)
+    static let fightCooldownMin: Double = 30
+    static let fightCooldownMax: Double = 50
     /// Velocidad de crucero del vuelo con motor (pt/s).
     static let flightSpeed: Double = 430
     /// Velocidad del dash de supervelocidad (pt/s) y su duración.

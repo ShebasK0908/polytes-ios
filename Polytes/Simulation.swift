@@ -35,6 +35,9 @@ final class Simulation: ObservableObject {
     // Dedos del usuario (v3): posiciones activas en pantalla y la última
     // conocida, para que un stickman irritado pueda contraatacar el punto.
     var activeFingerPoints: [CGPoint] = []
+    /// Velocidad del dedo más rápido (pt/s), alimentada por la vista:
+    /// la mente (v4) la usa para asustarse de un cursor que llega rápido.
+    var cursorSpeed: Double = 0
     private(set) var lastFingerPoint: CGPoint?
     private(set) var lastFingerTimestamp: Double = -100
 
@@ -138,6 +141,9 @@ final class Simulation: ObservableObject {
             s.x += deltaX
             s.y += deltaY
             s.groundY = Double(newRect.minY)
+            if s.state == .sit {
+                s.sitGroundY = Double(newRect.minY)
+            }
             if let target = s.targetX {
                 s.targetX = target + deltaX
             }
@@ -146,11 +152,17 @@ final class Simulation: ObservableObject {
 
     // MARK: - Stickmen
 
+    /// Contador de apariciones: reparte los huecos de forma persistente
+    /// (con el conteo de vivos, tras eliminar a alguien dos stickmen
+    /// podían aparecer exactamente en el mismo sitio, uno dentro de otro).
+    private var spawnCounter = 0
+
     @discardableResult
     func addStickman(name: String, color: UIColor, hollowHead: Bool) -> Stickman {
         // Aparecen de pie sobre el suelo, repartidos por el ancho del
         // escritorio (30 %, 50 % y 70 %) para no amontonarse.
-        let slot = Double(stickmen.count % 3)
+        let slot = Double(spawnCounter % 3)
+        spawnCounter += 1
         let centerX = Double(workRect.width) * (0.30 + 0.20 * slot)
         let spawnX = clampValue(centerX - C.stickmanWidth / 2, 0, max(0, Double(workRect.width) - C.stickmanWidth))
         let spawnY = Double(workRect.maxY) - C.stickmanHeight
@@ -168,6 +180,29 @@ final class Simulation: ObservableObject {
 
     func removeStickman(id: UUID) {
         stickmen.removeAll { $0.id == id }
+        // Limpieza de referencias: nadie puede quedarse esperando a un
+        // rival, un portador o un objetivo que ya no existe.
+        for s in stickmen {
+            if s.opponentID == id {
+                s.opponentID = nil
+                s.fightTimer = 0
+                s.chargingPunch = false
+            }
+            if s.carryingID == id {
+                s.carryingID = nil
+            }
+            if s.carriedByID == id {
+                s.carriedByID = nil
+                if !s.holding { s.flying = true }
+            }
+            if s.dashHitTargetID == id {
+                s.dashHitTargetID = nil
+            }
+            if s.flightAttackTargetID == id {
+                s.cutPoweredFlight()
+            }
+        }
+        fireballs.removeAll { $0.ownerID == id }
     }
 
     // MARK: - Bucle principal
@@ -194,10 +229,11 @@ final class Simulation: ObservableObject {
         }
 
         for s in stickmen {
+            if s.downedTimer > 0 { s.downedTimer -= dt }
             Needs.update(s, dt: dt)
             Combat.update(s, sim: self, dt: dt)
             if !s.isInCombat && s.carriedByID == nil {
-                Brain.update(s, worldWidth: Double(workRect.width), dt: dt)
+                Mind.update(s, sim: self, dt: dt)
             }
             Animator.update(s, dt: dt)
             if s.carriedByID != nil {
@@ -299,6 +335,11 @@ final class Simulation: ObservableObject {
         BodyPhysics.applySpin(points: target.ragPoints, angularVelocity: spin)
         target.state = .idle
         target.targetX = nil
+        // Memoria (v4): recuerda quién le pegó, por si luego se cruzan.
+        if let attacker {
+            target.lastAttackerID = attacker.id
+            target.lastAttackerTimer = 20
+        }
         spawnSparks(at: target.centerPoint(), count: 8, color: .orange)
 
         if let attacker, attacker.opponentID == target.id || target.opponentID == attacker.id {
@@ -326,6 +367,21 @@ final class Simulation: ObservableObject {
 
     /// Cierra una pelea: sin rival, sin carga, y enfriamiento largo.
     func endFight(_ a: Stickman, _ b: Stickman) {
+        // Si uno llevaba al otro en alto, lo suelta. Sin esto, cuando la
+        // pelea terminaba por cualquier otra vía (un golpe de un tercero,
+        // un agarre del usuario, el temporizador), el cargado quedaba
+        // pegado para siempre a la cabeza de su portador: nadie volvía
+        // a bajarlo.
+        if a.carryingID == b.id {
+            a.carryingID = nil
+            b.carriedByID = nil
+            if !b.holding { b.flying = true }
+        }
+        if b.carryingID == a.id {
+            b.carryingID = nil
+            a.carriedByID = nil
+            if !a.holding { a.flying = true }
+        }
         for s in [a, b] {
             s.opponentID = nil
             s.fightTimer = 0
@@ -486,6 +542,19 @@ final class Simulation: ObservableObject {
                 exploded = true
             }
             if !exploded {
+                // Las ventanas son sólidos también para el fuego (antes
+                // las bolas las atravesaban como si no existieran), y el
+                // mundo tiene bordes: fuera de él, la bola se apaga.
+                for window in windows where window.rect.contains(fireball.pos) {
+                    exploded = true
+                    break
+                }
+                if fireball.pos.x < 6 || fireball.pos.x > bounds.width - 6
+                    || fireball.pos.y < 6 || fireball.pos.y > workRect.maxY - 6 {
+                    exploded = true
+                }
+            }
+            if !exploded {
                 for s in stickmen where s.id != fireball.ownerID && !s.holding && s.carriedByID == nil {
                     let center = s.centerPoint()
                     if hypot(Double(fireball.pos.x - center.x), Double(fireball.pos.y - center.y)) < 34 {
@@ -582,6 +651,29 @@ final class Simulation: ObservableObject {
     // MARK: - Física en modo animación
 
     private func stepAnimated(_ s: Stickman, dt: Double) {
+        // Sentado en el borde de una ventana (v4): sin gravedad ni
+        // movimiento; solo vigila que su ventana siga bajo él. Si la
+        // ventana desaparece o se mueve sin él, cae en ragdoll.
+        if s.state == .sit {
+            let windowOK = s.sitWindowID.flatMap { id in windows.first { $0.id == id } }
+                .map { window in
+                    let hipX = s.x + s.width / 2
+                    return abs(Double(window.rect.minY) - s.sitGroundY) < 1.5
+                        && hipX > Double(window.rect.minX) - 8
+                        && hipX < Double(window.rect.maxX) + 8
+                } ?? false
+            if !windowOK {
+                s.sitWindowID = nil
+                s.behavior = .none
+                // Se siembra desde la pose sentada (estado aún .sit)
+                // y después el estado vuelve a reposo.
+                s.seedRagdoll()
+                s.flying = true
+                s.state = .idle
+            }
+            return
+        }
+
         // Gravedad
         s.velocityY += C.gravityAcceleration * dt
         s.y += s.velocityY * dt
@@ -604,7 +696,10 @@ final class Simulation: ObservableObject {
         s.groundY = ground.y
         s.groundLimit = (ground.left, ground.width)
 
-        if feetY >= ground.y {
+        // El apoyo solo se aplica cayendo o en reposo: subiendo (un
+        // salto de trepada, v4) no debe «aterrizar» en la ventana que
+        // está superando por el lateral.
+        if feetY >= ground.y && s.velocityY >= 0 {
             s.velocityY = 0
             s.y = ground.y - s.height
         }
@@ -642,7 +737,9 @@ final class Simulation: ObservableObject {
                     s.dashTimer = 0
                 }
             }
-        } else if s.state == .walk, let target = s.targetX {
+        } else if s.state == .walk, let target = s.targetX, s.peekTimer <= 0 {
+            // Con peekTimer activo está parado en el borde, mirando
+            // abajo: no avanza hasta decidir (v4).
             s.direction = target > s.x ? 1 : -1
             s.velocityX = C.defaultWalkSpeed
             s.x += s.velocityX * Double(s.direction) * dt
@@ -662,6 +759,11 @@ final class Simulation: ObservableObject {
     /// el suelo deja de sujetarlo y cae como cuerpo físico.
     private func checkGroundLost(_ s: Stickman) {
         if s.flying || s.holding { return }
+        // En el aire (un salto, v4) no hay suelo que perder: la
+        // comprobación solo vale con los pies a la altura de su suelo.
+        if let groundY = s.groundY, s.y + s.height < groundY - C.groundSnapTolerance {
+            return
+        }
         let (left, width) = s.groundLimit
         if s.x > left + width || s.x + s.width < left {
             s.seedRagdoll()
@@ -752,11 +854,18 @@ final class Simulation: ObservableObject {
         var desiredX = 0.0
         var desiredY = 0.0
         if dist > 4 {
-            let speedPerStep = C.flightSpeed * C.frameDuration
+            // La velocidad deseada crece con la distancia: lejos vuela a
+            // velocidad de crucero, pero al acercarse al objetivo frena
+            // y llega suave, sin orbitar alrededor del punto.
+            let speedPerStep = C.flightSpeed * C.frameDuration * min(1, dist / 130)
             desiredX = dx / dist * speedPerStep
             desiredY = dy / dist * speedPerStep
         }
-        let k = 0.09
+        // Rampa de despegue: la asistencia entra progresivamente durante
+        // el primer medio segundo de vuelo, sin tirón inicial.
+        let elapsed = s.flightDuration - s.flightTimer
+        let ramp = s.flightDuration > 0 ? clampValue(elapsed / 0.5, 0.25, 1) : 1
+        let k = 0.09 * ramp
         for point in points {
             point.old.x -= CGFloat((desiredX - meanVX) * k)
             point.old.y -= CGFloat((desiredY - meanVY) * k)
@@ -1112,18 +1221,31 @@ final class Simulation: ObservableObject {
         s.groundLimit = (ground.left, ground.width)
 
         if Double(b.maxY) >= ground.y {
+            // Velocidad del impacto (la de la cadera justo al aterrizar):
+            // una caída grande lo deja asustado y más rato en el suelo.
+            s.lastLandingSpeed = s.ragPoints[.hip].map {
+                hypot(Double($0.velocity.x), Double($0.velocity.y))
+            } ?? 0
             s.flying = false
             onLanded(s)
         }
     }
 
-    /// Tras aterrizar, el stickman se queda quieto un tiempo de
-    /// recuperación antes de que el cerebro vuelva a decidir.
+    /// Tras aterrizar, el stickman se queda en el suelo un tiempo de
+    /// recuperación (tumbado) antes de que la mente vuelva a decidir.
+    /// Si la caída fue grande, tarda más y se queda asustado un rato.
     private func onLanded(_ s: Stickman) {
         s.state = .idle
         s.targetX = nil
         s.velocityX = 0
-        s.decideCooldown = C.landingRecoveryTime
+        s.behavior = .none
+        s.sitWindowID = nil
+        s.downedTimer = C.landingRecoveryTime
+        if s.lastLandingSpeed > 13 {
+            s.scaredTimer = 6
+            s.downedTimer = 4.5
+        }
+        s.decideCooldown = s.downedTimer + 0.5
         s.animationFrameIndex = 0
         s.animationTimer = 0
     }

@@ -34,6 +34,33 @@ struct CreatorView: View {
     var body: some View {
         NavigationStack {
             Form {
+                Section("Personajes conocidos") {
+                    ForEach(presetCharacters, id: \.name) { preset in
+                        Button {
+                            name = preset.name
+                            color = Color(preset.uiColor)
+                            hollowHead = preset.hollow
+                        } label: {
+                            HStack(spacing: 10) {
+                                Circle()
+                                    .fill(Color(preset.uiColor))
+                                    .frame(width: 20, height: 20)
+                                    .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
+                                Text(preset.name)
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text(preset.hollow ? "Cabeza hueca" : "Cabeza rellena")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Text("Toca un personaje para cargar sus datos y pulsa «Crear stickman».")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Section("Nuevo stickman") {
                     TextField("Nombre", text: $name)
                         .autocorrectionDisabled()
@@ -70,6 +97,7 @@ struct CreatorView: View {
                                 .font(.headline)
                             traitBar(label: "Energía", value: personality.energy, tint: .orange)
                             traitBar(label: "Curiosidad", value: personality.curiosity, tint: .blue)
+                            traitBar(label: "Sociabilidad", value: personality.sociability, tint: .green)
                             Text("La personalidad nace del nombre: el mismo nombre siempre da los mismos rasgos.")
                                 .font(.caption)
                                 .foregroundColor(.secondary)
@@ -143,6 +171,17 @@ struct CreatorView: View {
             }
             .frame(height: 6)
         }
+    }
+
+    /// Los personajes del vídeo de referencia, listos para crear:
+    /// el naranja de cabeza hueca, el rojo de cabeza rellena y el
+    /// amarillo. Al tocarlos se cargan en el formulario.
+    private var presetCharacters: [(name: String, uiColor: UIColor, hollow: Bool)] {
+        [
+            ("The Second Coming", UIColor(red: 241.0 / 255, green: 129.0 / 255, blue: 12.0 / 255, alpha: 1), true),
+            ("The Dark Lord", UIColor(red: 0.85, green: 0.10, blue: 0.10, alpha: 1), false),
+            ("Víctima", UIColor(red: 0.98, green: 0.78, blue: 0.10, alpha: 1), false)
+        ]
     }
 
     private var presetColors: [(name: String, color: Color)] {

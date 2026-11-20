@@ -29,9 +29,9 @@ jobs:
           name: Polytes-ipa
           path: build/Polytes.ipa
 
-      - name: Publicar en release app-v3
+      - name: Publicar en release app-v4
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view app-v3 >/dev/null 2>&1 || gh release create app-v3 --title "Polytes v3" --notes "Polytes para iPhone: mascota de escritorio con física (recreación propia para iOS del diseño de Polytes). v3: poderes (volar con chorros de llama, fuego, láser, superpuñetazo, superfuerza, supervelocidad), inteligencia de ataque (represalia contra el dedo y peleas entre stickmen con bloqueos y esquivas), agarre 1:1 tipo cursor, cabecera fuera del mundo y colisiones por punto. IPA sin firmar: instalar con SideStore o AltStore."
-          gh release upload app-v3 build/Polytes.ipa --clobber
+          gh release view app-v4 >/dev/null 2>&1 || gh release create app-v4 --title "Polytes v4" --notes "Polytes para iPhone: mascota de escritorio con física (recreación propia para iOS del diseño de Polytes). v4: pantalla completa de verdad (sin cabecera ni barra de estado, botón flotante), cursor visible (flecha estilo PC y mano al agarrar) y una mente mucho más completa: percepción del cursor y de los demás, memoria (quién le pegó, su sitio, zonas visitadas), humor (contento, curioso, aburrido, irritado, asustado) y conductas nuevas (explorar, sentarse en el borde de una ventana con las piernas colgando, tumbarse a descansar, seguir a otro, ayudar a levantarse a un caído, asomarse al borde, saludar, reaccionar al cursor). Además: correcciones de la revisión (el cargado ya no queda pegado al acabar una pelea, las bolas de fuego chocan con las ventanas), icono de app, escritorio con cielo, sol y colinas, ventanas con contenido propio y personajes conocidos en el creador (The Second Coming, The Dark Lord, Víctima). IPA sin firmar: instalar con SideStore o AltStore."
+          gh release upload app-v4 build/Polytes.ipa --clobber
