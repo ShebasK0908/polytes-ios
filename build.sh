@@ -10,7 +10,6 @@ xcodebuild \
   -scheme Polytes \
   -configuration Release \
   -sdk iphoneos \
-  -destination 'generic/platform=iOS' \
   -derivedDataPath build/DerivedData \
   CODE_SIGNING_ALLOWED=NO \
   CODE_SIGNING_REQUIRED=NO \
