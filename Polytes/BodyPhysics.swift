@@ -110,7 +110,7 @@ enum BodyPhysics {
         for (joint, position) in joints {
             let dx = position.x - point.x
             let dy = position.y - point.y
-            let distance = sqrt(dx * dx + dy * dy)
+            let distance = Double(sqrt(dx * dx + dy * dy))
             if best == nil || distance < best!.distance {
                 best = (joint, distance)
             }
