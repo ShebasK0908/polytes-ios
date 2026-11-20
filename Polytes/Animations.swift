@@ -55,6 +55,23 @@ enum Animations {
         Pose(torso: -91, hipOffsetY: 0, upperArmR: 104, forearmR: 26, upperArmL: 56, forearmL: 16, upperLegR: 80, lowerLegR: -15, upperLegL: 120, lowerLegL: -29)
     ])
 
+    // MARK: - Poses de acción (v3: combate y poderes)
+    // Poses sueltas que el Animator interpola sobre la animación en curso
+    // cuando el stickman ataca, carga, bloquea o se desplaza a supervelocidad.
+    // Como el resto de la animación base, miran a la izquierda y se espejan
+    // al mirar a la derecha.
+
+    /// Puño extendido hacia delante, cuerpo inclinado al golpe.
+    static let punchPose = Pose(torso: -78, hipOffsetY: 0, upperArmR: 168, forearmR: 6, upperArmL: 55, forearmL: 35, upperLegR: 102, lowerLegR: -12, upperLegL: 78, lowerLegL: -6)
+    /// Carga del superpuñetazo: puño atrás, junto a la cadera, piernas flexionadas.
+    static let chargePose = Pose(torso: -96, hipOffsetY: 0, upperArmR: 15, forearmR: -125, upperArmL: 120, forearmL: -20, upperLegR: 112, lowerLegR: -32, upperLegL: 72, lowerLegL: -18)
+    /// Brazos hacia delante lanzando fuego o el láser.
+    static let castPose = Pose(torso: -84, hipOffsetY: 0, upperArmR: 152, forearmR: 8, upperArmL: 138, forearmL: 18, upperLegR: 95, lowerLegR: -10, upperLegL: 85, lowerLegL: -8)
+    /// Guardia: brazos cruzados delante del pecho, piernas firmes.
+    static let blockPose = Pose(torso: -88, hipOffsetY: 0, upperArmR: 128, forearmR: -78, upperArmL: 122, forearmL: -88, upperLegR: 100, lowerLegR: -14, upperLegL: 80, lowerLegL: -10)
+    /// Dash de supervelocidad: cuerpo inclinado hacia delante, brazos atrás.
+    static let dashPose = Pose(torso: -58, hipOffsetY: 0, upperArmR: 40, forearmR: 20, upperArmL: 30, forearmL: 25, upperLegR: 130, lowerLegR: -15, upperLegL: 55, lowerLegL: -25)
+
     static let idle = Clip(defaultCycle: 2.0, frames: [
         Pose(torso: -85, hipOffsetY: 0, upperArmR: 59, forearmR: 11, upperArmL: 121, forearmL: -11, upperLegR: 72, lowerLegR: 11, upperLegL: 108, lowerLegL: -11),
         Pose(torso: -85, hipOffsetY: 0, upperArmR: 54, forearmR: 11, upperArmL: 126, forearmL: -11, upperLegR: 72, lowerLegR: 11, upperLegL: 108, lowerLegL: -11),
@@ -70,6 +87,21 @@ enum Animations {
 /// los pies no patinen sobre el suelo.
 enum Animator {
     static func update(_ s: Stickman, dt: Double) {
+        // Pose de acción (v3): mientras dura, la pose actual se interpola
+        // rápidamente hacia ella y la animación normal queda en pausa. Al
+        // terminar, la animación retoma desde la pose alcanzada.
+        if let actionPose = s.actionPose {
+            s.actionPoseTimer -= dt
+            s.currentPose = Pose.lerp(s.currentPose, actionPose, min(1, dt / 0.07))
+            if s.actionPoseTimer <= 0 {
+                s.actionPose = nil
+                s.basePose = s.currentPose
+                s.animationFrameIndex = -1
+                s.animationTimer = 0
+            }
+            return
+        }
+
         let clip = s.state == .walk ? Animations.walk : Animations.idle
 
         if s.state == .walk && !s.holding && !s.flying && s.velocityX != 0 {

@@ -4,6 +4,12 @@ import UIKit
 /// inferior y los stickmen, y traduce los dedos en agarres y arrastres.
 /// Un CADisplayLink alimenta la simulación a paso fijo y repinta a la
 /// frecuencia de la pantalla.
+///
+/// El dedo hace de cursor, como el ratón en el original: al agarrar se
+/// conserva el desplazamiento entre el dedo y la articulación (el cuerpo
+/// no salta), el punto agarrado sigue al dedo sin suavizado, y la
+/// velocidad de lanzamiento se mide del movimiento real del dedo con
+/// las marcas de tiempo de los eventos táctiles.
 final class DesktopView: UIView {
     var simulation: Simulation? {
         didSet { setNeedsDisplay() }
@@ -14,10 +20,13 @@ final class DesktopView: UIView {
     private var accumulator: Double = 0
 
     private enum TouchContext {
-        case stickman(stickman: Stickman, part: Joint, offset: CGPoint, last: CGPoint, velocity: CGPoint)
+        /// velocity va en pt/s (suavizado exponencial de las muestras).
+        case stickman(stickman: Stickman, part: Joint, offset: CGPoint, last: CGPoint, lastTime: CFTimeInterval, velocity: CGPoint)
         case window(id: UUID, offset: CGPoint)
     }
     private var touchContexts: [ObjectIdentifier: TouchContext] = [:]
+    /// Posiciones de todos los dedos activos, para la IA de represalia.
+    private var fingerPositions: [ObjectIdentifier: CGPoint] = [:]
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -89,9 +98,25 @@ final class DesktopView: UIView {
             drawWindow(ctx, window: window)
         }
         drawTaskbar(ctx, simulation: simulation)
+        // Los stickmen se dibujan siempre por encima de los iconos y de
+        // las ventanas; las estelas van justo debajo de su dueño.
+        for ghost in simulation.trailGhosts {
+            drawFigure(
+                ctx,
+                joints: ghost.joints,
+                color: ghost.color,
+                hollowHead: ghost.hollowHead,
+                headRadius: ghost.headRadius,
+                alpha: CGFloat(0.35 * ghost.life / ghost.maxLife)
+            )
+        }
         for stickman in simulation.stickmen {
             drawStickman(ctx, stickman: stickman)
         }
+        drawLasers(ctx, simulation: simulation)
+        drawFireballs(ctx, simulation: simulation)
+        drawParticles(ctx, simulation: simulation)
+        drawChargeGlows(ctx, simulation: simulation)
     }
 
     private func drawWallpaper(_ ctx: CGContext, simulation: Simulation) {
@@ -220,14 +245,28 @@ final class DesktopView: UIView {
         clock.draw(at: CGPoint(x: bounds.width - clockSize.width - 14, y: barRect.midY - clockSize.height / 2))
     }
 
-    // MARK: - Dibujo del stickman
+    // MARK: - Dibujo del stickman y los efectos (v3)
 
     private func drawStickman(_ ctx: CGContext, stickman: Stickman) {
-        let joints = stickman.displayJoints()
+        drawFigure(
+            ctx,
+            joints: stickman.displayJoints(),
+            color: stickman.color,
+            hollowHead: stickman.hollowHead,
+            headRadius: stickman.headRadius,
+            alpha: 1
+        )
+    }
+
+    /// Dibuja una figura completa (torso, extremidades y cabeza) a partir
+    /// de unas articulaciones. Sirve para los stickmen y para sus
+    /// estelas de supervelocidad.
+    private func drawFigure(_ ctx: CGContext, joints: [Joint: CGPoint], color: UIColor, hollowHead: Bool, headRadius: Double, alpha: CGFloat) {
         guard let hip = joints[.hip], let neck = joints[.neck], let head = joints[.head] else { return }
 
         ctx.saveGState()
-        ctx.setStrokeColor(stickman.color.cgColor)
+        ctx.setAlpha(alpha)
+        ctx.setStrokeColor(color.cgColor)
         ctx.setLineWidth(CGFloat(C.stroke))
         ctx.setLineCap(.round)
         ctx.setLineJoin(.round)
@@ -246,14 +285,14 @@ final class DesktopView: UIView {
         drawLimb(ctx, from: hip, mid: joints[.kneeL], to: joints[.footL])
 
         // Cabeza
-        let radius = CGFloat(stickman.headRadius)
+        let radius = CGFloat(headRadius)
         let headRect = CGRect(x: head.x - radius, y: head.y - radius, width: radius * 2, height: radius * 2)
-        if stickman.hollowHead {
+        if hollowHead {
             ctx.beginPath()
             ctx.addEllipse(in: headRect)
             ctx.strokePath()
         } else {
-            ctx.setFillColor(stickman.color.cgColor)
+            ctx.setFillColor(color.cgColor)
             ctx.fillEllipse(in: headRect)
         }
         ctx.restoreGState()
@@ -271,6 +310,75 @@ final class DesktopView: UIView {
         ctx.strokePath()
     }
 
+    private func drawLasers(_ ctx: CGContext, simulation: Simulation) {
+        for laser in simulation.lasers {
+            let fade = CGFloat(max(0, laser.life / laser.maxLife))
+            ctx.saveGState()
+            ctx.setLineCap(.round)
+            ctx.setStrokeColor(laser.color.withAlphaComponent(0.35 * fade).cgColor)
+            ctx.setLineWidth(7)
+            ctx.beginPath()
+            ctx.move(to: laser.from)
+            ctx.addLine(to: laser.to)
+            ctx.strokePath()
+            ctx.setStrokeColor(UIColor.white.withAlphaComponent(0.9 * fade).cgColor)
+            ctx.setLineWidth(2.2)
+            ctx.beginPath()
+            ctx.move(to: laser.from)
+            ctx.addLine(to: laser.to)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+    }
+
+    private func drawFireballs(_ ctx: CGContext, simulation: Simulation) {
+        for fireball in simulation.fireballs {
+            ctx.saveGState()
+            let outer = CGRect(x: fireball.pos.x - 11, y: fireball.pos.y - 11, width: 22, height: 22)
+            ctx.setFillColor(UIColor(red: 1, green: 0.5, blue: 0.12, alpha: 0.9).cgColor)
+            ctx.fillEllipse(in: outer)
+            let inner = CGRect(x: fireball.pos.x - 6, y: fireball.pos.y - 6, width: 12, height: 12)
+            ctx.setFillColor(UIColor(red: 1, green: 0.88, blue: 0.4, alpha: 1).cgColor)
+            ctx.fillEllipse(in: inner)
+            ctx.restoreGState()
+        }
+    }
+
+    private func drawParticles(_ ctx: CGContext, simulation: Simulation) {
+        for particle in simulation.particles {
+            let fraction = max(0, particle.life / particle.maxLife)
+            let size = CGFloat(particle.size * (0.4 + 0.6 * fraction))
+            ctx.setFillColor(particle.color.withAlphaComponent(CGFloat(min(1, fraction * 1.6))).cgColor)
+            ctx.fillEllipse(in: CGRect(
+                x: particle.pos.x - size / 2,
+                y: particle.pos.y - size / 2,
+                width: size,
+                height: size
+            ))
+        }
+    }
+
+    /// Brillo creciente en el puño mientras se carga el superpuñetazo.
+    private func drawChargeGlows(_ ctx: CGContext, simulation: Simulation) {
+        for stickman in simulation.stickmen where stickman.chargingPunch {
+            let joints = stickman.displayJoints()
+            let hands = [joints[.handR], joints[.handL]].compactMap { $0 }
+            guard let fist = hands.max(by: {
+                Double($0.x - stickman.centerPoint().x) * Double(stickman.direction)
+                    < Double($1.x - stickman.centerPoint().x) * Double(stickman.direction)
+            }) else { continue }
+            let progress = clampValue(1 - stickman.chargeTimer / C.superPunchChargeTime, 0, 1)
+            let radius = CGFloat(6 + progress * 15)
+            ctx.saveGState()
+            ctx.setFillColor(UIColor(red: 1, green: 0.55, blue: 0.15, alpha: CGFloat(0.30 + 0.30 * progress)).cgColor)
+            ctx.fillEllipse(in: CGRect(x: fist.x - radius, y: fist.y - radius, width: radius * 2, height: radius * 2))
+            let core = radius * 0.45
+            ctx.setFillColor(UIColor(white: 1, alpha: 0.75).cgColor)
+            ctx.fillEllipse(in: CGRect(x: fist.x - core, y: fist.y - core, width: core * 2, height: core * 2))
+            ctx.restoreGState()
+        }
+    }
+
     private func roundedRectPath(_ rect: CGRect, radius: CGFloat) -> CGPath {
         CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
     }
@@ -283,16 +391,27 @@ final class DesktopView: UIView {
 
     // MARK: - Tacto
 
+    /// El área jugable dentro de la vista: todo menos la barra inferior.
+    private var playableRect: CGRect {
+        CGRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - CGFloat(C.taskbarHeight)))
+    }
+
+    private func syncFingerPoints() {
+        simulation?.activeFingerPoints = Array(fingerPositions.values)
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let simulation else { return }
         for touch in touches {
             let point = touch.location(in: self)
             let key = ObjectIdentifier(touch)
+            fingerPositions[key] = point
 
             // Primero se intenta agarrar un stickman por su articulación
-            // más cercana al dedo, entre todos los que hay en escena.
+            // más cercana al dedo, entre los que están libres (uno ya
+            // agarrado por otro dedo no puede agarrarse dos veces).
             var best: (stickman: Stickman, joint: Joint, distance: Double)?
-            for stickman in simulation.stickmen {
+            for stickman in simulation.stickmen where !stickman.holding {
                 let joints = stickman.displayJoints()
                 if let nearest = BodyPhysics.nearestJoint(in: joints, to: point) {
                     if best == nil || nearest.distance < best!.distance {
@@ -303,8 +422,18 @@ final class DesktopView: UIView {
 
             if let found = best, found.distance <= C.grabSearchRadius, let jointPosition = found.stickman.displayJoints()[found.joint] {
                 found.stickman.beginGrab(part: found.joint)
+                // El desplazamiento dedo↔articulación se conserva durante
+                // todo el arrastre: el cuerpo no salta al tocarlo.
                 let offset = CGPoint(x: point.x - jointPosition.x, y: point.y - jointPosition.y)
-                touchContexts[key] = .stickman(stickman: found.stickman, part: found.joint, offset: offset, last: point, velocity: .zero)
+                touchContexts[key] = .stickman(
+                    stickman: found.stickman,
+                    part: found.joint,
+                    offset: offset,
+                    last: point,
+                    lastTime: touch.timestamp,
+                    velocity: .zero
+                )
+                simulation.noteFingerGrab(found.stickman, at: point)
                 continue
             }
 
@@ -320,28 +449,63 @@ final class DesktopView: UIView {
                 }
             }
         }
+        syncFingerPoints()
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let simulation else { return }
         for touch in touches {
             let key = ObjectIdentifier(touch)
+            // Las muestras coalescidas dan el movimiento real del dedo
+            // incluso en gestos rápidos.
+            let samples = event?.coalescedTouches(for: touch) ?? [touch]
+            let point = samples.last?.location(in: self) ?? touch.location(in: self)
+            fingerPositions[key] = point
             guard let context = touchContexts[key] else { continue }
-            let point = touch.location(in: self)
 
             switch context {
-            case .stickman(let stickman, let part, let offset, let last, _):
-                let velocity = CGPoint(x: point.x - last.x, y: point.y - last.y)
+            case .stickman(let stickman, let part, let offset, var last, var lastTime, var velocity):
+                // Si el stickman se zafó solo (represalia), el agarre
+                // deja de existir: se suelta el contexto.
+                guard stickman.holding, stickman.grabPart == part else {
+                    touchContexts.removeValue(forKey: key)
+                    continue
+                }
+                for sample in samples {
+                    let samplePoint = sample.location(in: self)
+                    let dt = sample.timestamp - lastTime
+                    if dt > 0.001 {
+                        let instant = CGPoint(
+                            x: (samplePoint.x - last.x) / CGFloat(dt),
+                            y: (samplePoint.y - last.y) / CGFloat(dt)
+                        )
+                        velocity = CGPoint(x: velocity.x * 0.45 + instant.x * 0.55, y: velocity.y * 0.45 + instant.y * 0.55)
+                    }
+                    last = samplePoint
+                    lastTime = sample.timestamp
+                }
                 if let ragPoint = stickman.ragPoints[part] {
-                    let target = CGPoint(x: point.x - offset.x, y: point.y - offset.y)
+                    // El punto agarrado sigue al dedo 1:1, sin suavizado,
+                    // pero nunca fuera del área jugable.
+                    var target = CGPoint(x: last.x - offset.x, y: last.y - offset.y)
+                    target.x = CGFloat(clampValue(Double(target.x), 4, max(4, Double(playableRect.maxX) - 4)))
+                    target.y = CGFloat(clampValue(Double(target.y), 4, max(4, Double(playableRect.maxY) - 4)))
                     ragPoint.pos = target
                     ragPoint.old = target
                 }
-                touchContexts[key] = .stickman(stickman: stickman, part: part, offset: offset, last: point, velocity: velocity)
+                touchContexts[key] = .stickman(
+                    stickman: stickman,
+                    part: part,
+                    offset: offset,
+                    last: last,
+                    lastTime: lastTime,
+                    velocity: velocity
+                )
             case .window(let id, let offset):
                 simulation.moveWindow(id: id, toOrigin: CGPoint(x: point.x - offset.x, y: point.y - offset.y))
             }
         }
+        syncFingerPoints()
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -353,12 +517,25 @@ final class DesktopView: UIView {
     }
 
     private func endTouches(_ touches: Set<UITouch>) {
+        guard let simulation else { return }
         for touch in touches {
             let key = ObjectIdentifier(touch)
+            fingerPositions.removeValue(forKey: key)
             guard let context = touchContexts.removeValue(forKey: key) else { continue }
-            if case .stickman(let stickman, _, _, _, let velocity) = context {
-                stickman.releaseGrab(dragVelocity: velocity)
+            if case .stickman(let stickman, _, _, let last, let lastTime, var velocity) = context {
+                // Si el dedo llevaba quieto un instante antes de soltar,
+                // el lanzamiento sale sin fuerza: la velocidad es la del
+                // movimiento real, no la de un gesto ya pasado.
+                if touch.timestamp - lastTime > 0.08 {
+                    velocity = .zero
+                }
+                if stickman.holding {
+                    let speed = hypot(Double(velocity.x), Double(velocity.y))
+                    simulation.noteFingerRelease(stickman, speed: speed, at: last)
+                    stickman.releaseGrab(dragVelocity: velocity)
+                }
             }
         }
+        syncFingerPoints()
     }
 }

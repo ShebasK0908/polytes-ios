@@ -53,7 +53,51 @@ final class Stickman {
     /// colisionar mientras tanto (al agarrar se vacía la lista).
     var overlapWindowIDs: [UUID] = []
 
-    var isRagdollActive: Bool { holding || flying }
+    var isRagdollActive: Bool { holding || flying || carriedByID != nil }
+
+    // Combate y poderes (v3). La lógica vive en Combat.swift; aquí solo
+    // está el estado. Los impulsos de golpe se expresan en pt por paso
+    // de simulación (la unidad natural del ragdoll Verlet).
+    /// Irritación contra el dedo (0–100): sube con agarres y lanzamientos.
+    var irritation: Double = 0
+    /// Segundos de represalia activa contra el dedo.
+    var retaliateTimer: Double = 0
+    var retaliateCooldown: Double = 0
+    /// Rival actual de pelea, si lo hay.
+    var opponentID: UUID?
+    var fightTimer: Double = 0
+    var fightCooldown: Double = 0
+    var attackCooldown: Double = 0
+    var fightThinkTimer: Double = Double.random(in: 0.5...1.5)
+    /// Superpuñetazo cargándose: la carga es visible (brillo en el puño).
+    var chargingPunch = false
+    var chargeTimer: Double = 0
+    /// Pose de acción que el Animator interpola sobre la animación normal.
+    var actionPose: Pose?
+    var actionPoseTimer: Double = 0
+    var blockingTimer: Double = 0
+    /// Empuje horizontal externo (pt/s) que se consume en modo animación:
+    /// resbalón al bloquear, abalanzamiento al fallar un superpuñetazo.
+    var externalPushX: Double = 0
+    /// Dash de supervelocidad en curso (modo animación).
+    var dashTimer: Double = 0
+    var dashVelocityX: Double = 0
+    var dashHitTargetID: UUID?
+    /// Vuelo con motor sobre el ragdoll: dirección asistida hacia el objetivo.
+    var poweredFlight = false
+    var flightTarget: CGPoint?
+    var flightTimer: Double = 0
+    var flightAttackTargetID: UUID?
+    /// Superfuerza: a quién lleva en alto y quién lo lleva a él.
+    var carryingID: UUID?
+    var carriedByID: UUID?
+    var carryTimer: Double = 0
+
+    /// ¿Está ocupado en algo de combate? El cerebro normal se pausa.
+    var isInCombat: Bool {
+        opponentID != nil || retaliateTimer > 0 || carryingID != nil
+            || carriedByID != nil || chargingPunch
+    }
 
     // Animación
     var animationFrameIndex = 0
@@ -117,6 +161,9 @@ final class Stickman {
     /// Empieza un agarre por una articulación concreta.
     func beginGrab(part: Joint) {
         overlapWindowIDs.removeAll()
+        // Agarrarlo corta el vuelo con motor y cancela la carga del puño.
+        cutPoweredFlight()
+        chargingPunch = false
         seedRagdoll()
         flying = false
         holding = true
@@ -125,18 +172,64 @@ final class Stickman {
 
     /// Suelta el agarre: el cuerpo queda en vuelo con la velocidad del dedo
     /// aplicada a la parte agarrada y con el giro del arrastre horizontal.
+    /// `dragVelocity` viene en pt/s (medida con marcas de tiempo táctiles);
+    /// se convierte a desplazamiento por paso y se acota para que un
+    /// latigazo extremo no produzca velocidades imposibles.
     func releaseGrab(dragVelocity: CGPoint) {
         guard holding else { return }
         holding = false
         flying = true
 
+        let stepVX = clampValue(Double(dragVelocity.x) * C.frameDuration, -80, 80)
+        let stepVY = clampValue(Double(dragVelocity.y) * C.frameDuration, -80, 80)
         if let part = grabPart, let point = ragPoints[part] {
-            point.old = CGPoint(x: point.pos.x - dragVelocity.x, y: point.pos.y - dragVelocity.y)
+            point.old = CGPoint(x: point.pos.x - CGFloat(stepVX), y: point.pos.y - CGFloat(stepVY))
         }
-        BodyPhysics.applySpin(points: ragPoints, angularVelocity: Double(dragVelocity.x) * C.ragdollSpinFactor)
+        let spin = clampValue(stepVX * C.ragdollSpinFactor, -0.3, 0.3)
+        BodyPhysics.applySpin(points: ragPoints, angularVelocity: spin)
 
         grabPart = nil
         velocityY = 0
         velocityX = 0
+    }
+
+    // MARK: - Poderes (v3)
+
+    /// Centro actual del cuerpo (la caja en modo animación; la envolvente
+    /// del ragdoll en modo físico, que la simulación mantiene en x/y).
+    func centerPoint() -> CGPoint {
+        cgPoint(x + width / 2, y + height / 2)
+    }
+
+    /// Fija la pose de acción que se verá durante unos segundos.
+    func setActionPose(_ pose: Pose, duration: Double) {
+        actionPose = pose
+        actionPoseTimer = duration
+    }
+
+    /// Despega con vuelo con motor: el ragdoll se siembra desde la pose
+    /// actual, recibe un impulso inicial hacia arriba y queda dirigido
+    /// hacia `target` hasta que el temporizador corte el vuelo.
+    func beginPoweredFlight(target: CGPoint, duration: Double) {
+        if !isRagdollActive {
+            seedRagdoll()
+        }
+        holding = false
+        grabPart = nil
+        flying = true
+        poweredFlight = true
+        flightTarget = target
+        flightTimer = duration
+        for point in ragPoints.values {
+            point.old.y = point.pos.y + 4
+        }
+    }
+
+    /// Corta el vuelo con motor: el cuerpo sigue en ragdoll y cae.
+    func cutPoweredFlight() {
+        poweredFlight = false
+        flightTarget = nil
+        flightTimer = 0
+        flightAttackTargetID = nil
     }
 }

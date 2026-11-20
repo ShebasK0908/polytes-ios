@@ -72,6 +72,11 @@ enum Needs {
             s.boredom -= boredomDrain
         }
 
+        // Pelear cansa más que pasear (v3).
+        if s.opponentID != nil {
+            s.stamina -= (30 / Double(s.energy)) * dt
+        }
+
         s.stamina = clampValue(s.stamina, 0, 100)
         s.boredom = clampValue(s.boredom, 0, 100)
     }

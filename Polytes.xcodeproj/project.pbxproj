@@ -18,6 +18,8 @@
 		AA000000000000000000003A /* BodyPhysics.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000027 /* BodyPhysics.swift */; };
 		AA000000000000000000003B /* Brain.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000028 /* Brain.swift */; };
 		AA000000000000000000003D /* Constants.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000029 /* Constants.swift */; };
+		AA000000000000000000003E /* Effects.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000002C /* Effects.swift */; };
+		AA000000000000000000003F /* Combat.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000002D /* Combat.swift */; };
 		AA000000000000000000003C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA000000000000000000002A /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -33,6 +35,8 @@
 		AA0000000000000000000027 /* BodyPhysics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BodyPhysics.swift; sourceTree = "<group>"; };
 		AA0000000000000000000028 /* Brain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Brain.swift; sourceTree = "<group>"; };
 		AA0000000000000000000029 /* Constants.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Constants.swift; sourceTree = "<group>"; };
+		AA000000000000000000002C /* Effects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Effects.swift; sourceTree = "<group>"; };
+		AA000000000000000000002D /* Combat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Combat.swift; sourceTree = "<group>"; };
 		AA0000000000000000000014 /* Polytes.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Polytes.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		AA000000000000000000002A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA000000000000000000002B /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -79,6 +83,8 @@
 				AA0000000000000000000027 /* BodyPhysics.swift */,
 				AA0000000000000000000028 /* Brain.swift */,
 				AA0000000000000000000029 /* Constants.swift */,
+				AA000000000000000000002C /* Effects.swift */,
+				AA000000000000000000002D /* Combat.swift */,
 				AA000000000000000000002A /* Assets.xcassets */,
 				AA000000000000000000002B /* Info.plist */,
 			);
@@ -165,6 +171,8 @@
 				AA000000000000000000003A /* BodyPhysics.swift in Sources */,
 				AA000000000000000000003B /* Brain.swift in Sources */,
 				AA000000000000000000003D /* Constants.swift in Sources */,
+				AA000000000000000000003E /* Effects.swift in Sources */,
+				AA000000000000000000003F /* Combat.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -201,8 +209,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
-				CURRENT_PROJECT_VERSION = 2;
+				MARKETING_VERSION = 3.0;
+				CURRENT_PROJECT_VERSION = 3;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.shebo.polytes;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
@@ -222,8 +230,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
-				CURRENT_PROJECT_VERSION = 2;
+				MARKETING_VERSION = 3.0;
+				CURRENT_PROJECT_VERSION = 3;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.shebo.polytes;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;

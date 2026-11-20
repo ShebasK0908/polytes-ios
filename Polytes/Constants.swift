@@ -62,8 +62,41 @@ enum C {
     static let grabSearchRadius: Double = 30
     /// Altura de la barra de título de las ventanas del escritorio.
     static let windowTitleBarHeight: Double = 30
+
+    // MARK: - Combate y poderes (v3)
+
+    /// Irritación que suma cada agarre del dedo.
+    static let irritationGrabGain: Double = 22
+    /// Irritación que se enfría por segundo cuando no hay represalia activa.
+    static let irritationDecayPerSecond: Double = 3.5
+    /// Duración de la represalia contra el dedo.
+    static let retaliationDuration: Double = 3.2
+    /// Tiempo tras una represalia en el que no puede volver a explotar.
+    static let retaliationCooldown: Double = 9
+    /// Duración máxima de una pelea antes de darla por terminada.
+    static let fightMaxDuration: Double = 14
+    /// Cooldown de peleas tras cada enfrentamiento (rango aleatorio).
+    static let fightCooldownMin: Double = 22
+    static let fightCooldownMax: Double = 38
+    /// Velocidad de crucero del vuelo con motor (pt/s).
+    static let flightSpeed: Double = 430
+    /// Velocidad del dash de supervelocidad (pt/s) y su duración.
+    static let dashSpeed: Double = 1500
+    static let dashDuration: Double = 0.16
+    /// Velocidad de las bolas de fuego (pt/s).
+    static let fireballSpeed: Double = 660
+    /// Tiempo de carga visible del superpuñetazo.
+    static let superPunchChargeTime: Double = 0.55
+    /// Tope de partículas vivas a la vez (rendimiento).
+    static let maxParticles: Int = 700
 }
 
 func clampValue(_ value: Double, _ low: Double, _ high: Double) -> Double {
     return max(low, min(high, value))
+}
+
+/// Punto a partir de dos Double (los impulsos y velocidades de combate
+/// se calculan en Double y CGPoint trabaja en CGFloat).
+func cgPoint(_ x: Double, _ y: Double) -> CGPoint {
+    CGPoint(x: CGFloat(x), y: CGFloat(y))
 }
