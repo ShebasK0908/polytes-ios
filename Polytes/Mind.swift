@@ -523,7 +523,10 @@ enum Mind {
 
     /// Termina la conducta en curso; si estaba sentado, se levanta
     /// (la caja vuelve a su sitio sobre el borde) y si estaba tumbado,
-    /// vuelve a reposo normal.
+    /// vuelve a reposo normal. Al terminar impone un respiro antes de
+    /// la próxima decisión (v5): sin él, en cuanto una conducta larga
+    /// acababa, el stickman encadenaba otra y el escritorio se sentía
+    /// hiperactivo en vez de vivo.
     static func endBehavior(_ s: Stickman) {
         if s.state == .sit {
             standUp(s)
@@ -534,6 +537,7 @@ enum Mind {
         s.behaviorTimer = 0
         s.behaviorTargetID = nil
         s.behaviorPhase = 0
+        s.decideCooldown = max(s.decideCooldown, 2.2)
     }
 
     /// Levantarse de estar sentado: la caja vuelve a apoyarse sobre el

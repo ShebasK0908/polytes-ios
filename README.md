@@ -76,6 +76,24 @@ Pasada completa de revisión del código de la v3, con correcciones, y una ronda
 - **Cursor visible**: el dedo es el cursor y ahora se ve — una flecha blanca estilo PC en cada dedo activo, que se convierte en mano agarrando cuando ese dedo lleva a un stickman. La vista además mide la velocidad de cada dedo y la simulación la percibe.
 - **Mente extendida** (`Mind.swift`): percepción (el cursor y su velocidad, los otros stickmen, las ventanas y los bordes de su suelo), memoria sencilla (quién le pegó por última vez y durante cuánto lo recuerda, su sitio favorito, las zonas del escritorio ya visitadas) y humor (contento, feliz, curioso, aburrido, irritado, asustado tras una caída grande) que tiñe las decisiones. Conductas nuevas puntuadas por utilidad, además de pasear/reposar/pelear: explorar zonas no visitadas, volver a su sitio, subirse a una ventana de un salto de trepada y **sentarse en su borde con las piernas colgando** (la FK no aplica el ajuste de pies en ese estado), tumbarse a descansar si la stamina está baja, seguir a otro por curiosidad, ayudar a levantarse a uno que está en el suelo tras una caída, asomarse al borde de una ventana y mirar abajo antes de decidir si sigue o da media vuelta, acercarse a mirar el cursor y estirar la mano a tocarlo, y huir de su agresor o de un cursor que llega demasiado rápido. Eventos sociales: saludos con la mano cuando otro pasa cerca (con posible saludo de vuelta) y saltos de alegría al ponerse contento. La personalidad suma un tercer rasgo de la misma semilla, la **sociabilidad**, que modula saludos, seguimientos y ayudas; el asustado no busca peleas y el irritado tiene ganas de revancha contra quien le pegó. Tras aterrizar, el stickman se queda tumbado en el suelo durante la recuperación (más rato, y asustado, si la caída fue grande).
 
+## La v5: correcciones de la grabación y mejora general
+
+El usuario grabó la v4 en su iPhone y señaló seis defectos; todos están corregidos:
+
+- **El cuerpo caído se hacía un nudo.** La física de reposo del ragdoll se ha rehecho: contactos por punto estilo PBD intercalados en el solver (cada punto se apoya en su superficie — suelo base o borde visible de ventana — con fricción horizontal y rebote solo si el impacto es fuerte), restricciones anti-pliegue de distancia mínima entre articulaciones no adyacentes (la cabeza ya no puede acabar entre los pies) y amortiguación del reposo que también frena el giro. El aterrizaje ya no depende de la envolvente: un cuerpo apoyado en varios puntos y casi quieto durante un instante se da por aterrizado y pasa a la recuperación tumbado, también si quedó colgando sobre una ventana. Y la pose tumbada tiene volumen (una rodilla flexionada, un brazo sobre el cuerpo, respiro visible): ya no es una tabla recta ni un pretzel.
+- **Tapado por la barra inferior.** El orden de dibujo ya ponía a los stickmen sobre la taskbar; lo que fallaba era que el cuerpo quedaba como una línea fina pegada a la costura y camuflada contra las colinas oscuras. Ahora el cuerpo pasa de forma fiable a la pose tumbada reconocible, lleva una **sombra de contacto** que lo despega del fondo (y que delata su altura al volar) y la cordillera cercana es más clara.
+- **Textos fantasma en el creador.** El `Form` (celdas reutilizadas y materiales translúcidos) se ha sustituido por un ScrollView de tarjetas con fondos sólidos y barra de navegación opaca; además, el escritorio se pausa mientras el creador está abierto. Sin celdas ni translucidez, al hacer scroll ya no se duplica nada.
+- **La ventana Música salía vacía.** Su contenido exigía más altura de la que la ventana tiene en el teléfono (reservaba 34 pt y pedía una carátula de más de 20 pt: la cuenta no salía y no dibujaba nada). Ahora la carátula, el disco y las líneas se adaptan a la altura real y la barra de progreso aparece cuando hay sitio.
+- **Colgar estirado de una ventana en movimiento.** Las colisiones con ventanas ya no desplazan la envolvente entera del cuerpo: cada punto sale y rebota por su cuenta y el solver cose el resto. Y un cuerpo apoyado en una ventana que se arrastra recibe arrastre por fricción parcial: si la ventana se mueve despacio lo lleva consigo; si se mueve rápido, el cuerpo se escurre, pierde el apoyo y cae, como con un agarre real.
+- **Golpes al aire sin objetivo.** La represalia contra el dedo solo ataca a dedos que están en la pantalla en ese momento (antes golpeaba con chispas el último punto conocido, ya vacío), y el puñetazo normal ni siquiera hace el gesto si el rival no está a distancia de golpeo. El único golpe al aire que queda es el de dentro de una pelea real: el superpuñetazo que falla porque el rival se apartó, con su abalanzamiento.
+
+**Mejoras generales de la misma pasada**
+
+- **Lanzamiento más coherente**: al soltar un agarre, la velocidad del dedo se reparte por todo el cuerpo (entera en el punto agarrado, un 55 % en los demás) en vez de salir solo del punto agarrado con un latigazo que estiraba el cuerpo.
+- **Rendimiento**: los intervalos visibles de las ventanas se calculan una vez por paso y se reutilizan en suelo, contactos y colisiones (antes se recalculaban por llamada); el escritorio se pausa con el creador abierto.
+- **IA que respira**: al terminar una conducta, el stickman espera un respiro antes de decidir otra; el escritorio se siente vivo sin encadenar actividades sin parar.
+- **Pulido visual**: borde fino que define las ventanas sobre el cielo, colinas más legibles y la sombra de contacto ya mencionada.
+
 ## Compilar
 
 ```bash
@@ -83,4 +101,4 @@ Pasada completa de revisión del código de la v3, con correcciones, y una ronda
 ./package-ipa.sh    # genera build/Polytes.ipa
 ```
 
-En GitHub, el workflow «Build iOS IPA (sin firmar)» hace lo mismo en un runner macOS y publica la `.ipa` en la release `app-v4`.
+En GitHub, el workflow «Build iOS IPA (sin firmar)» hace lo mismo en un runner macOS y publica la `.ipa` en la release `app-v5`.

@@ -31,127 +31,161 @@ struct CreatorView: View {
         return saturation < 0.05 ? nil : Double(hue) * 360
     }
 
+    // La pantalla es un ScrollView de tarjetas con fondos SÓLIDOS (v5).
+    // Antes era un Form: sus celdas reutilizadas y los materiales
+    // translúcidos hacían que al hacer scroll las filas se redibujaran
+    // duplicadas con un pequeño desplazamiento («Víctima» dos veces,
+    // etiquetas fantasma). Sin celdas ni translucidez, no hay fantasmas.
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Personajes conocidos") {
-                    ForEach(presetCharacters, id: \.name) { preset in
-                        Button {
-                            name = preset.name
-                            color = Color(preset.uiColor)
-                            hollowHead = preset.hollow
-                        } label: {
-                            HStack(spacing: 10) {
-                                Circle()
-                                    .fill(Color(preset.uiColor))
-                                    .frame(width: 20, height: 20)
-                                    .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
-                                Text(preset.name)
-                                    .foregroundColor(.primary)
-                                Spacer()
-                                Text(preset.hollow ? "Cabeza hueca" : "Cabeza rellena")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    Text("Toca un personaje para cargar sus datos y pulsa «Crear stickman».")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-
-                Section("Nuevo stickman") {
-                    TextField("Nombre", text: $name)
-                        .autocorrectionDisabled()
-
-                    ColorPicker("Color", selection: $color, supportsOpacity: false)
-
-                    HStack(spacing: 8) {
-                        ForEach(presetColors, id: \.name) { preset in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    sectionCard(title: "Personajes conocidos") {
+                        ForEach(presetCharacters, id: \.name) { preset in
                             Button {
-                                color = preset.color
+                                name = preset.name
+                                color = Color(preset.uiColor)
+                                hollowHead = preset.hollow
                             } label: {
-                                Circle()
-                                    .fill(preset.color)
-                                    .frame(width: 26, height: 26)
-                                    .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-
-                    Picker("Cabeza", selection: $hollowHead) {
-                        Text("Hueca").tag(true)
-                        Text("Rellena").tag(false)
-                    }
-                    .pickerStyle(.segmented)
-                }
-
-                Section("Vista previa") {
-                    HStack(spacing: 16) {
-                        StickmanPreview(color: UIColor(color), hollowHead: hollowHead)
-                            .frame(width: 110, height: 160)
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(effectiveName)
-                                .font(.headline)
-                            traitBar(label: "Energía", value: personality.energy, tint: .orange)
-                            traitBar(label: "Curiosidad", value: personality.curiosity, tint: .blue)
-                            traitBar(label: "Sociabilidad", value: personality.sociability, tint: .green)
-                            Text("La personalidad nace del nombre: el mismo nombre siempre da los mismos rasgos.")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section {
-                    Button {
-                        simulation.addStickman(name: effectiveName, color: UIColor(color), hollowHead: hollowHead)
-                        dismiss()
-                    } label: {
-                        HStack {
-                            Spacer()
-                            Text("Crear stickman").fontWeight(.semibold)
-                            Spacer()
-                        }
-                    }
-                }
-
-                if !simulation.stickmen.isEmpty {
-                    Section("En escena") {
-                        ForEach(simulation.stickmen, id: \.id) { stickman in
-                            HStack {
-                                Circle()
-                                    .fill(Color(stickman.color))
-                                    .frame(width: 16, height: 16)
-                                    .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
-                                VStack(alignment: .leading) {
-                                    Text(stickman.name)
-                                    Text("Energía \(stickman.energy) · Curiosidad \(stickman.curiosity) · Cabeza \(stickman.hollowHead ? "hueca" : "rellena")")
+                                HStack(spacing: 10) {
+                                    Circle()
+                                        .fill(Color(preset.uiColor))
+                                        .frame(width: 20, height: 20)
+                                        .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
+                                    Text(preset.name)
+                                        .foregroundColor(.primary)
+                                    Spacer()
+                                    Text(preset.hollow ? "Cabeza hueca" : "Cabeza rellena")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
                                 }
-                                Spacer()
-                                Button(role: .destructive) {
-                                    simulation.removeStickman(id: stickman.id)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            if preset.name != presetCharacters.last?.name {
+                                Divider()
+                            }
+                        }
+                        Text("Toca un personaje para cargar sus datos y pulsa «Crear stickman».")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    sectionCard(title: "Nuevo stickman") {
+                        TextField("Nombre", text: $name)
+                            .autocorrectionDisabled()
+
+                        ColorPicker("Color", selection: $color, supportsOpacity: false)
+
+                        HStack(spacing: 8) {
+                            ForEach(presetColors, id: \.name) { preset in
+                                Button {
+                                    color = preset.color
                                 } label: {
-                                    Image(systemName: "trash")
+                                    Circle()
+                                        .fill(preset.color)
+                                        .frame(width: 26, height: 26)
+                                        .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
+
+                        Picker("Cabeza", selection: $hollowHead) {
+                            Text("Hueca").tag(true)
+                            Text("Rellena").tag(false)
+                        }
+                        .pickerStyle(.segmented)
+                    }
+
+                    sectionCard(title: "Vista previa") {
+                        HStack(spacing: 16) {
+                            StickmanPreview(color: UIColor(color), hollowHead: hollowHead)
+                                .frame(width: 110, height: 160)
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(effectiveName)
+                                    .font(.headline)
+                                traitBar(label: "Energía", value: personality.energy, tint: .orange)
+                                traitBar(label: "Curiosidad", value: personality.curiosity, tint: .blue)
+                                traitBar(label: "Sociabilidad", value: personality.sociability, tint: .green)
+                                Text("La personalidad nace del nombre: el mismo nombre siempre da los mismos rasgos.")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                    }
+
+                    Button {
+                        simulation.addStickman(name: effectiveName, color: UIColor(color), hollowHead: hollowHead)
+                        dismiss()
+                    } label: {
+                        Text("Crear stickman")
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12))
+                    }
+                    .buttonStyle(.plain)
+
+                    if !simulation.stickmen.isEmpty {
+                        sectionCard(title: "En escena") {
+                            ForEach(simulation.stickmen, id: \.id) { stickman in
+                                HStack {
+                                    Circle()
+                                        .fill(Color(stickman.color))
+                                        .frame(width: 16, height: 16)
+                                        .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
+                                    VStack(alignment: .leading) {
+                                        Text(stickman.name)
+                                        Text("Energía \(stickman.energy) · Curiosidad \(stickman.curiosity) · Cabeza \(stickman.hollowHead ? "hueca" : "rellena")")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
+                                    Button(role: .destructive) {
+                                        simulation.removeStickman(id: stickman.id)
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                if stickman.id != simulation.stickmen.last?.id {
+                                    Divider()
+                                }
+                            }
+                        }
                     }
                 }
+                .padding(16)
             }
+            .background(Color(UIColor.systemBackground))
             .navigationTitle("Crear stickman")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(Color(UIColor.systemBackground), for: .navigationBar)
+            .toolbarBackground(.visible, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cerrar") { dismiss() }
                 }
             }
+        }
+    }
+
+    /// Una tarjeta de sección: título en mayúsculas y contenido sobre un
+    /// fondo sólido redondeado (nada de materiales translúcidos).
+    private func sectionCard<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.caption.weight(.semibold))
+                .foregroundColor(.secondary)
+                .padding(.leading, 4)
+            VStack(alignment: .leading, spacing: 12) {
+                content()
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
         }
     }
 

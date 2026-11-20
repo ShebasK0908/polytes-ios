@@ -26,6 +26,20 @@ final class Simulation: ObservableObject {
     /// Reloj de la simulación (segundos de paso fijo acumulados).
     private(set) var time: Double = 0
 
+    /// Contador de pasos: invalida la caché de intervalos visibles.
+    private var stepIndex = 0
+    /// Intervalos visibles del borde superior de cada ventana, calculados
+    /// una sola vez por paso (v5): antes se recalculaban por ventana,
+    /// por punto y por llamada, y era el mayor coste de la física.
+    private var visibleIntervalsCache: [UUID: [(start: Double, end: Double)]] = [:]
+    private var visibleIntervalsCacheStep = -1
+    /// Desplazamientos de ventana acumulados entre pasos (de los eventos
+    /// táctiles) y los vigentes en el paso en curso: los cuerpos apoyados
+    /// en una ventana se dejan arrastrar por fricción… o se escurren si
+    /// la ventana se mueve rápido (v5).
+    private var pendingWindowDeltas: [UUID: CGPoint] = [:]
+    private var stepWindowDeltas: [UUID: CGPoint] = [:]
+
     // Efectos visuales y proyectiles (v3)
     var particles: [Particle] = []
     var fireballs: [Fireball] = []
@@ -134,6 +148,12 @@ final class Simulation: ObservableObject {
         let deltaX = Double(newRect.minX - oldRect.minX)
         let deltaY = Double(newRect.minY - oldRect.minY)
         guard deltaX != 0 || deltaY != 0 else { return }
+        // El desplazamiento se anota también para los cuerpos físicos
+        // apoyados en la ventana: su fricción los arrastra (o no, si la
+        // ventana se mueve rápido) en el siguiente paso (v5).
+        let accumulated = pendingWindowDeltas[id] ?? .zero
+        pendingWindowDeltas[id] = CGPoint(x: accumulated.x + CGFloat(deltaX), y: accumulated.y + CGFloat(deltaY))
+        visibleIntervalsCacheStep = -1
         for s in stickmen where !s.isRagdollActive {
             guard let groundY = s.groundY, abs(groundY - Double(oldRect.minY)) < 1.5 else { continue }
             let overlapsTop = s.x + s.width > Double(oldRect.minX) && s.x < Double(oldRect.maxX)
@@ -213,6 +233,9 @@ final class Simulation: ObservableObject {
     func step(dt: Double) {
         guard didSetupWorld else { return }
         time += dt
+        stepIndex += 1
+        stepWindowDeltas = pendingWindowDeltas
+        pendingWindowDeltas = [:]
 
         // Superfuerza: el cuerpo del cargado cuelga sobre la cabeza de
         // su portador, sin física propia mientras tanto.
@@ -269,6 +292,18 @@ final class Simulation: ObservableObject {
         }
         lastFingerPoint = point
         lastFingerTimestamp = time
+    }
+
+    /// El dedo ACTIVO más cercano (v5): solo dedos que están tocando la
+    /// pantalla ahora mismo. Los ataques exigen esto: con el último
+    /// punto conocido, un stickman en represalia golpeaba con chispas
+    /// un punto vacío donde el dedo ya no estaba.
+    func activeFingerPoint(for s: Stickman) -> CGPoint? {
+        let center = s.centerPoint()
+        return activeFingerPoints.min(by: {
+            hypot(Double($0.x - center.x), Double($0.y - center.y))
+                < hypot(Double($1.x - center.x), Double($1.y - center.y))
+        })
     }
 
     /// El punto del dedo al que apunta una represalia: el dedo activo
@@ -608,6 +643,18 @@ final class Simulation: ObservableObject {
         return intervals
     }
 
+    /// Los intervalos visibles de una ventana, con caché por paso (v5).
+    func visibleIntervals(of windowID: UUID) -> [(start: Double, end: Double)] {
+        if visibleIntervalsCacheStep != stepIndex {
+            visibleIntervalsCache = [:]
+            for window in windows {
+                visibleIntervalsCache[window.id] = visibleTopIntervals(of: window)
+            }
+            visibleIntervalsCacheStep = stepIndex
+        }
+        return visibleIntervalsCache[windowID] ?? []
+    }
+
     private func subtractInterval(
         _ original: (start: Double, end: Double),
         covering: (start: Double, end: Double)
@@ -638,7 +685,7 @@ final class Simulation: ObservableObject {
         for window in windows {
             let top = Double(window.rect.minY)
             if top < maxY - C.groundSnapTolerance { continue }
-            for interval in visibleTopIntervals(of: window) {
+            for interval in visibleIntervals(of: window.id) {
                 let overlaps = boxX < interval.end && boxX + boxWidth > interval.start
                 if overlaps && top < best.y {
                     best = (top, interval.start, interval.end - interval.start)
@@ -801,10 +848,23 @@ final class Simulation: ObservableObject {
             emitFlightFlames(s)
         }
 
-        // Solver de distancias
-        for _ in 0..<C.ragdollSolverIterations {
+        // Solver de distancias con contactos intercalados (v5, estilo
+        // PBD): huesos, anti-pliegue y apoyo por punto se alternan, así
+        // un cuerpo que cae sobre una superficie se asienta apoyado en
+        // vez de rebotar como una bola y plegarse sobre sí mismo.
+        for iteration in 0..<C.ragdollSolverIterations {
             BodyPhysics.solveBody(points: s.ragPoints, headRadius: s.headRadius, grabPart: s.grabPart)
+            BodyPhysics.solveAntiFold(points: s.ragPoints, grabPart: s.grabPart)
+            if iteration % C.ragdollContactEvery == C.ragdollContactEvery - 1 {
+                applyPointContacts(s, positionalOnly: true)
+            }
         }
+        // Pasada final de contactos: aplica fricción, rebote y el
+        // arrastre de las ventanas en movimiento, una vez por paso.
+        let contacts = applyPointContacts(s, positionalOnly: false)
+
+        // Reposo y aterrizaje por contacto (v5).
+        updateRestAndLanding(s, contacts: contacts)
 
         // En vuelo con motor, la amortiguación central no se aplica:
         // la dirección asistida ya gobierna la velocidad media.
@@ -816,7 +876,6 @@ final class Simulation: ObservableObject {
         resolveFlyingEdgeCollision(s)
         resolveFlyingWindowCollisions(s)
         clampPointsToWorld(s)
-        resolveFlyingLanding(s)
 
         if s.flying {
             let b = ragdollBounds(s)
@@ -833,6 +892,150 @@ final class Simulation: ObservableObject {
             s.x = hipX - s.width / 2
             let ground = s.groundY ?? Double(workRect.maxY)
             s.y = ground - s.height
+        }
+    }
+
+    /// Contactos por punto (v5): cada punto del ragdoll se apoya en SU
+    /// superficie — el suelo base o el borde superior *visible* de una
+    /// ventana que no esté atravesando — en vez de que el cuerpo entero
+    /// se desplace al chocar cualquier punto. Al apoyarse pierde
+    /// velocidad vertical (o rebota si el impacto es fuerte) y sufre
+    /// fricción horizontal: un cuerpo caído se tiende y se queda, no
+    /// se desliza ni se enrolla. Si su superficie es una ventana que se
+    /// está moviendo, la fricción lo arrastra un poco; si la ventana se
+    /// mueve rápido, el arrastre se reduce casi a nada y el cuerpo se
+    /// escurre y cae, como con un agarre real.
+    ///
+    /// Devuelve los apoyos de este paso (articulación → altura de la
+    /// superficie e id de la ventana, si la hay).
+    @discardableResult
+    private func applyPointContacts(_ s: Stickman, positionalOnly: Bool) -> [Joint: (y: Double, windowID: UUID?)] {
+        var contacts: [Joint: (y: Double, windowID: UUID?)] = [:]
+        let floorY = Double(workRect.maxY)
+        for (joint, point) in s.ragPoints {
+            if joint == s.grabPart { continue }
+            let radius = joint == .head ? s.headRadius : C.ragPointRadius
+
+            // La superficie más alta que no quede por encima del punto:
+            // el suelo base siempre es candidato.
+            var supportY = floorY
+            var supportWindowID: UUID? = nil
+            for window in windows where !s.overlapWindowIDs.contains(window.id) {
+                let top = Double(window.rect.minY)
+                if top >= floorY || top >= supportY { continue }
+                // La superficie debe estar a la altura del centro del
+                // punto o por debajo (si no, el punto está bajo la
+                // ventana y no debe «engancharse» a su borde).
+                if top < Double(point.pos.y) - radius - 1 { continue }
+                let px = Double(point.pos.x)
+                let supported = visibleIntervals(of: window.id).contains { px >= $0.start - 1 && px <= $0.end + 1 }
+                if supported {
+                    supportY = top
+                    supportWindowID = window.id
+                }
+            }
+
+            let bottom = Double(point.pos.y) + radius
+            let oldBottom = Double(point.old.y) + radius
+            // Contacto: toca o penetra la superficie sin venir ya de
+            // debajo de ella (un punto que pasa por debajo de una
+            // ventana no se teletransporta a su borde).
+            guard bottom >= supportY - 0.5, oldBottom <= supportY + radius * 2.5 else { continue }
+
+            point.pos.y = CGFloat(supportY - radius)
+            contacts[joint] = (supportY, supportWindowID)
+            if positionalOnly { continue }
+
+            // Arrastre por fricción de una ventana en movimiento.
+            if let windowID = supportWindowID, let delta = stepWindowDeltas[windowID] {
+                let magnitude = hypot(Double(delta.x), Double(delta.y))
+                let factor = clampValue(1 - max(0, magnitude - 10) / 55, 0.15, 0.92)
+                let dragX = Double(delta.x) * factor
+                let dragY = Double(delta.y) * factor
+                point.pos.x += CGFloat(dragX)
+                point.pos.y += CGFloat(dragY)
+                point.old.x += CGFloat(dragX)
+                point.old.y += CGFloat(dragY)
+            }
+            // Fricción horizontal y rebote vertical (o reposo). Si el
+            // punto está SUBIENDO (despegue del vuelo con motor, un
+            // lanzamiento desde el suelo), no se toca su velocidad:
+            // anularla lo dejaría pegado a la superficie.
+            let vy = Double(point.pos.y - point.old.y)
+            if vy < -0.5 { continue }
+            let vx = Double(point.pos.x - point.old.x)
+            point.old.x = point.pos.x - CGFloat(vx * (1 - C.ragdollGroundFriction))
+            if vy > 7 {
+                point.old.y = point.pos.y + CGFloat(vy * 0.35)
+            } else {
+                point.old.y = point.pos.y
+            }
+        }
+        return contacts
+    }
+
+    /// Reposo estable y aterrizaje (v5): si el cuerpo en vuelo lleva un
+    /// rato apoyado en varios puntos y casi quieto, se da por aterrizado
+    /// y pasa a la recuperación tumbado. Mientras tanto, el reposo se
+    /// amortigua (también el giro) para que el cuerpo deje de plegarse
+    /// y de vibrar sobre la superficie. La velocidad de impacto para el
+    /// susto se anota del primer contacto de cada caída.
+    private func updateRestAndLanding(_ s: Stickman, contacts: [Joint: (y: Double, windowID: UUID?)]) {
+        guard s.flying else { return }
+        let hipSpeed = s.ragPoints[.hip].map {
+            hypot(Double($0.velocity.x), Double($0.velocity.y))
+        } ?? 0
+
+        if contacts.isEmpty {
+            s.lastLandingSpeed = 0
+            s.restContactTimer = 0
+            return
+        }
+        s.lastLandingSpeed = max(s.lastLandingSpeed, hipSpeed)
+
+        if contacts.count >= 3 && hipSpeed < 3.4 && !s.poweredFlight {
+            dampRestVelocities(s)
+            s.restContactTimer += C.frameDuration
+        } else {
+            s.restContactTimer = 0
+        }
+
+        if s.restContactTimer >= C.ragdollRestSettleTime && !s.poweredFlight {
+            // El apoyo dominante manda: el de la cadera si está apoyada;
+            // si no, el más repetido entre los puntos en contacto.
+            if let hipSupport = contacts[.hip] {
+                s.groundY = hipSupport.y
+            } else {
+                var counts: [Double: Int] = [:]
+                for contact in contacts.values { counts[contact.y, default: 0] += 1 }
+                s.groundY = counts.max(by: { $0.value < $1.value })?.key ?? s.groundY
+            }
+            let hipX = Double(s.ragPoints[.hip]?.pos.x ?? CGFloat(s.x))
+            let ground = computeGround(boxX: hipX - C.stickmanWidth / 2, boxWidth: C.stickmanWidth, maxY: Double(workRect.maxY))
+            s.groundLimit = (ground.left, ground.width)
+            s.restContactTimer = 0
+            s.flying = false
+            onLanded(s)
+        }
+    }
+
+    /// Amortigua las velocidades de un cuerpo en reposo: la media un
+    /// poco y las relativas (el giro y el plegado) bastante más. Es lo
+    /// que hace que un cuerpo tendido se quede tendido y reconocible
+    /// en vez de seguir enrollándose despacio sobre sí mismo.
+    private func dampRestVelocities(_ s: Stickman) {
+        let points = Array(s.ragPoints.values)
+        guard !points.isEmpty else { return }
+        let count = Double(points.count)
+        let meanVX = points.reduce(0) { $0 + Double($1.velocity.x) } / count
+        let meanVY = points.reduce(0) { $0 + Double($1.velocity.y) } / count
+        for point in points {
+            let relX = Double(point.velocity.x) - meanVX
+            let relY = Double(point.velocity.y) - meanVY
+            let newVX = meanVX * 0.92 + relX * 0.78
+            let newVY = meanVY * 0.92 + relY * 0.78
+            point.old.x = point.pos.x - CGFloat(newVX)
+            point.old.y = point.pos.y - CGFloat(newVY)
         }
     }
 
@@ -1006,70 +1209,56 @@ final class Simulation: ObservableObject {
         }
     }
 
-    /// Choque de los puntos contra las ventanas que no está atravesando.
-    /// La resolución desplaza el cuerpo entero hasta que su envolvente
-    /// sale de la ventana por el lado del impacto, con rebote; un impacto
-    /// por arriba intenta además el aterrizaje. Superfuerza (v3): un
-    /// impacto muy rápido empuja la ventana en la dirección del golpe.
+    /// Choque de los puntos contra los laterales y la parte inferior de
+    /// las ventanas que no está atravesando. La respuesta es POR PUNTO
+    /// (v5): sale y rebota solo el punto que chocó, y el solver cose el
+    /// resto del cuerpo. Antes se desplazaba la envolvente entera del
+    /// cuerpo, y un cuerpo colgado o apoyado en una ventana que se
+    /// movía salía «esparcido» horizontalmente, estirado de forma
+    /// antinatural. Los impactos por arriba los gestiona el sistema de
+    /// contactos por punto (apoyo con fricción), más preciso.
+    /// Superfuerza (v3): un impacto muy rápido empuja la ventana.
     private func resolveFlyingWindowCollisions(_ s: Stickman) {
         guard s.flying else { return }
 
         var nudgedWindowIDs = Set<UUID>()
         for windowIndex in windows.indices where !s.overlapWindowIDs.contains(windows[windowIndex].id) {
             let window = windows[windowIndex]
-            let visibleIntervals = visibleTopIntervals(of: window)
 
             for joint in Joint.allCases {
-                guard let point = s.ragPoints[joint] else { continue }
+                guard let point = s.ragPoints[joint], joint != s.grabPart else { continue }
                 let radius = joint == .head ? s.headRadius : C.ragPointRadius
 
                 guard let hit = detectPointWindowCollision(point: point, radius: radius, window: window) else { continue }
 
-                var xSide = hit.xSide
-                var ySide = hit.ySide
-
-                if ySide == .top {
-                    let collisionX = Double(point.old.x + (point.pos.x - point.old.x) * CGFloat(hit.time))
-                    let pointVisible = visibleIntervals.contains { $0.start <= collisionX && collisionX <= $0.end }
-                    if !pointVisible {
-                        ySide = nil
-                    }
-                }
-
+                // Por arriba manda el apoyo por punto: nada que hacer.
+                let xSide = hit.xSide
+                let ySide: CollisionSide? = hit.ySide == .bottom ? .bottom : nil
                 if xSide == nil && ySide == nil { continue }
-
-                let b = ragdollBounds(s)
 
                 if let side = xSide {
                     switch side {
                     case .left:
-                        moveAllPoints(s, offsetX: Double(window.rect.minX) - Double(b.maxX), offsetY: 0)
+                        point.pos.x = window.rect.minX - CGFloat(radius)
                     case .right:
-                        moveAllPoints(s, offsetX: Double(window.rect.maxX) - Double(b.minX), offsetY: 0)
+                        point.pos.x = window.rect.maxX + CGFloat(radius)
                     default:
                         break
                     }
-                    bounceAllPoints(s, axisX: true, axisY: false)
+                    let vx = point.pos.x - point.old.x
+                    point.old.x = point.pos.x + vx * CGFloat(C.ragdollBounceFactor)
                 }
 
-                if let side = ySide {
-                    switch side {
-                    case .top:
-                        moveAllPoints(s, offsetX: 0, offsetY: Double(window.rect.minY) - Double(b.maxY))
-                        bounceAllPoints(s, axisX: false, axisY: true)
-                        resolveFlyingLanding(s)
-                    case .bottom:
-                        moveAllPoints(s, offsetX: 0, offsetY: Double(window.rect.maxY) - Double(b.minY))
-                        bounceAllPoints(s, axisX: false, axisY: true)
-                    default:
-                        break
-                    }
+                if ySide == .bottom {
+                    point.pos.y = window.rect.maxY + CGFloat(radius)
+                    let vy = point.pos.y - point.old.y
+                    point.old.y = point.pos.y + vy * CGFloat(C.ragdollBounceFactor)
                 }
 
                 // Superfuerza (v3): un cuerpo que llega muy rápido empuja
                 // la ventana en la dirección del golpe (una vez por
                 // ventana y paso, para que no salga disparada).
-                if (xSide != nil || ySide != nil) && !nudgedWindowIDs.contains(window.id) {
+                if !nudgedWindowIDs.contains(window.id) {
                     let hipSpeed = s.ragPoints[.hip].map {
                         hypot(Double($0.velocity.x), Double($0.velocity.y))
                     } ?? 0
@@ -1080,11 +1269,12 @@ final class Simulation: ObservableObject {
                             let push = min(10, (hipSpeed - 16) * 0.35)
                             rect.origin.x += CGFloat(side == .left ? push : -push)
                         }
-                        if let side = ySide {
+                        if ySide == .bottom {
                             let push = min(8, (hipSpeed - 16) * 0.3)
-                            rect.origin.y += CGFloat(side == .top ? push : -push)
+                            rect.origin.y -= CGFloat(push)
                         }
                         windows[windowIndex].rect = clampedWindowRect(rect)
+                        visibleIntervalsCacheStep = -1
                     }
                 }
             }
@@ -1199,36 +1389,6 @@ final class Simulation: ObservableObject {
             ySide: topCollision ? .top : (bottomCollision ? .bottom : nil),
             time: 1
         )
-    }
-
-    /// Aterrizaje en vuelo: si la parte baja de la envolvente alcanza el
-    /// suelo que tiene debajo, el vuelo termina y empieza la recuperación.
-    /// El suelo se busca con una caja del ancho del cuerpo centrada en la
-    /// cadera, no con la envolvente entera: un cuerpo que cae girando es
-    /// mucho más ancho que de pie, y con su envolvente aterrizaba
-    /// «enganchado» de la esquina de una ventana que apenas rozaba.
-    private func resolveFlyingLanding(_ s: Stickman) {
-        guard s.flying else { return }
-        let b = ragdollBounds(s)
-
-        let hipX = Double(s.ragPoints[.hip]?.pos.x ?? b.midX)
-        let ground = computeGround(
-            boxX: hipX - C.stickmanWidth / 2,
-            boxWidth: C.stickmanWidth,
-            maxY: Double(b.maxY)
-        )
-        s.groundY = ground.y
-        s.groundLimit = (ground.left, ground.width)
-
-        if Double(b.maxY) >= ground.y {
-            // Velocidad del impacto (la de la cadera justo al aterrizar):
-            // una caída grande lo deja asustado y más rato en el suelo.
-            s.lastLandingSpeed = s.ragPoints[.hip].map {
-                hypot(Double($0.velocity.x), Double($0.velocity.y))
-            } ?? 0
-            s.flying = false
-            onLanded(s)
-        }
     }
 
     /// Tras aterrizar, el stickman se queda en el suelo un tiempo de

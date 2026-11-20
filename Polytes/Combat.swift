@@ -113,8 +113,14 @@ enum Combat {
             return
         }
 
-        guard let point = sim.fingerTargetPoint(for: s) else {
+        // Solo se ataca a un dedo que está en la pantalla AHORA (v5):
+        // con el último punto conocido, la represalia lanzaba puñetazos
+        // con chispas a un punto vacío. Sin dedo activo no hay objetivo:
+        // se queda quieto (y enfadado) hasta que el temporizador expire.
+        guard let point = sim.activeFingerPoint(for: s) else {
             s.state = .idle
+            s.targetX = nil
+            if s.poweredFlight { s.cutPoweredFlight() }
             return
         }
 
@@ -296,9 +302,17 @@ enum Combat {
     // MARK: - Ataques
 
     static func punch(_ s: Stickman, sim: Simulation, opp: Stickman) {
-        s.setActionPose(Animations.punchPose, duration: 0.28)
         let dx = Double(opp.centerPoint().x - s.centerPoint().x)
         let dy = Double(opp.centerPoint().y - s.centerPoint().y)
+        // Sin objetivo a distancia de golpeo no hay ni gesto (v5): el
+        // puñetazo al aire solo tiene sentido DENTRO de una pelea, cuando
+        // el rival se aparta entre la elección y el impacto (eso lo
+        // gestiona el superpuñetazo con su abalanzamiento fallido).
+        guard abs(dx) < 130 && abs(dy) < 100 else {
+            s.attackCooldown = 0.45
+            return
+        }
+        s.setActionPose(Animations.punchPose, duration: 0.28)
         if abs(dx) < 105 && abs(dy) < 90 {
             let dir = dx >= 0 ? 1.0 : -1.0
             sim.applyHit(to: opp, impulse: cgPoint(dir * 10.5, -6), spin: dir * 0.05, from: s)

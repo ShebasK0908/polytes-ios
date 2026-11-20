@@ -95,10 +95,15 @@ enum Animations {
 
     /// Tumbado boca arriba descansando (también es la pose de «en el suelo
     /// tras una caída» durante la recuperación): cuerpo horizontal a ras
-    /// de suelo, con un respiro apenas visible entre los dos fotogramas.
-    static let rest = Clip(defaultCycle: 2.4, frames: [
-        Pose(torso: 178, hipOffsetY: 0, upperArmR: 96, forearmR: 8, upperArmL: 84, forearmL: -6, upperLegR: 4, lowerLegR: 2, upperLegL: -4, lowerLegL: -2),
-        Pose(torso: 175, hipOffsetY: 0, upperArmR: 96, forearmR: 8, upperArmL: 84, forearmL: -6, upperLegR: 4, lowerLegR: 2, upperLegL: -4, lowerLegL: -2)
+    /// de suelo, pero con volumen de cuerpo de verdad (v5): una rodilla
+    /// flexionada con el pie apoyado, un brazo doblado sobre el cuerpo y
+    /// el otro extendido, y un respiro que se nota entre fotogramas.
+    /// Antes las dos piernas iban rectas y juntas y los dos fotogramas
+    /// eran casi idénticos: se leía como una tabla rígida.
+    static let rest = Clip(defaultCycle: 2.6, frames: [
+        Pose(torso: 176, hipOffsetY: 0, upperArmR: 100, forearmR: 34, upperArmL: 76, forearmL: -10, upperLegR: 9, lowerLegR: -5, upperLegL: -7, lowerLegL: -30),
+        Pose(torso: 173, hipOffsetY: 0, upperArmR: 100, forearmR: 40, upperArmL: 76, forearmL: -10, upperLegR: 9, lowerLegR: -5, upperLegL: -5, lowerLegL: -26),
+        Pose(torso: 177, hipOffsetY: 0, upperArmR: 96, forearmR: 26, upperArmL: 82, forearmL: -4, upperLegR: 6, lowerLegR: -3, upperLegL: -9, lowerLegL: -33)
     ])
 
     static let idle = Clip(defaultCycle: 2.0, frames: [

@@ -82,6 +82,16 @@ final class DesktopView: UIView {
         displayLink = nil
     }
 
+    /// Pausa externa (v5): mientras el creador está abierto, el
+    /// escritorio deja de simular y de repintarse tras la hoja.
+    func setPaused(_ paused: Bool) {
+        if paused {
+            stopDisplayLink()
+        } else if window != nil {
+            startDisplayLink()
+        }
+    }
+
     @objc private func tick(_ link: CADisplayLink) {
         guard let simulation else { return }
         if lastTimestamp == 0 {
@@ -221,9 +231,12 @@ final class DesktopView: UIView {
         let sunGradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: sunColors, locations: [0, 1])!
         ctx.drawRadialGradient(sunGradient, startCenter: sunCenter, startRadius: 0, endCenter: sunCenter, endRadius: bounds.width * 0.42, options: [])
 
-        // Colinas lejanas: dos siluetas suaves sobre el horizonte.
-        drawHills(ctx, floorY: floorY, width: bounds.width, baseHeight: bounds.height * 0.10, phase: 0, color: UIColor(red: 0.13, green: 0.30, blue: 0.45, alpha: 0.55))
-        drawHills(ctx, floorY: floorY, width: bounds.width, baseHeight: bounds.height * 0.055, phase: 0.45, color: UIColor(red: 0.09, green: 0.23, blue: 0.36, alpha: 0.85))
+        // Colinas lejanas: dos siluetas suaves sobre el horizonte. La
+        // cordillera cercana es más clara que en la v4 (v5): un cuerpo
+        // oscuro tumbado sobre el suelo se camuflaba contra ella y
+        // parecía escondido tras la barra inferior.
+        drawHills(ctx, floorY: floorY, width: bounds.width, baseHeight: bounds.height * 0.10, phase: 0, color: UIColor(red: 0.13, green: 0.30, blue: 0.45, alpha: 0.5))
+        drawHills(ctx, floorY: floorY, width: bounds.width, baseHeight: bounds.height * 0.05, phase: 0.45, color: UIColor(red: 0.17, green: 0.34, blue: 0.48, alpha: 0.68))
     }
 
     /// Una cordillera de silueta: curvas cuadráticas encadenadas que
@@ -282,6 +295,14 @@ final class DesktopView: UIView {
         ctx.setShadow(offset: CGSize(width: 0, height: 4), blur: 10, color: UIColor.black.withAlphaComponent(0.35).cgColor)
         ctx.setFillColor(UIColor(white: 0.97, alpha: 1).cgColor)
         fillPath(ctx, roundedRectPath(rect, radius: 8))
+        ctx.restoreGState()
+
+        // Borde fino: define la ventana sobre el cielo claro (v5).
+        ctx.saveGState()
+        ctx.setStrokeColor(UIColor(white: 0.1, alpha: 0.16).cgColor)
+        ctx.setLineWidth(1)
+        ctx.addPath(roundedRectPath(rect.insetBy(dx: 0.5, dy: 0.5), radius: 8))
+        ctx.strokePath()
         ctx.restoreGState()
 
         // Barra de título
@@ -418,19 +439,24 @@ final class DesktopView: UIView {
     }
 
     /// Música: carátula con su disco, título de la pista y barra de
-    /// progreso con su botón de reproducción.
+    /// progreso con su botón de reproducción. El tamaño se adapta a la
+    /// altura real del contenido (v5): antes se reservaban 34 pt para
+    /// el progreso y se exigía una carátula de más de 20 pt, y con la
+    /// altura que la ventana tiene en el teléfono la cuenta no salía y
+    /// no se dibujaba NADA: la ventana salía blanca y vacía.
     private func drawMusicContent(_ ctx: CGContext, content: CGRect) {
         ctx.saveGState()
-        let albumSize = min(56, content.height - 34)
-        guard albumSize > 20 else { ctx.restoreGState(); return }
-        let album = CGRect(x: content.minX, y: content.minY + 2, width: albumSize, height: albumSize)
+        let albumSize = clampValue(min(52, Double(content.height) * 0.74), 16, 52)
+        let album = CGRect(x: content.minX, y: content.minY + 2, width: CGFloat(albumSize), height: CGFloat(albumSize))
         ctx.setFillColor(UIColor(red: 0.42, green: 0.30, blue: 0.68, alpha: 1).cgColor)
         fillPath(ctx, roundedRectPath(album, radius: 6))
-        // El disco dentro de la carátula.
+        // El disco dentro de la carátula (proporcional a su tamaño).
+        let disc = CGFloat(albumSize) * 0.48
         ctx.setFillColor(UIColor(white: 0.95, alpha: 0.9).cgColor)
-        ctx.fillEllipse(in: CGRect(x: album.midX - 13, y: album.midY - 13, width: 26, height: 26))
+        ctx.fillEllipse(in: CGRect(x: album.midX - disc / 2, y: album.midY - disc / 2, width: disc, height: disc))
         ctx.setFillColor(UIColor(red: 0.42, green: 0.30, blue: 0.68, alpha: 1).cgColor)
-        ctx.fillEllipse(in: CGRect(x: album.midX - 4, y: album.midY - 4, width: 8, height: 8))
+        let hub = disc * 0.32
+        ctx.fillEllipse(in: CGRect(x: album.midX - hub / 2, y: album.midY - hub / 2, width: hub, height: hub))
 
         // Título y artista a la derecha de la carátula.
         let textX = album.maxX + 12
@@ -438,15 +464,17 @@ final class DesktopView: UIView {
         ctx.setStrokeColor(UIColor(white: 0.35, alpha: 1).cgColor)
         ctx.setLineWidth(6)
         ctx.beginPath()
-        ctx.move(to: CGPoint(x: textX, y: album.minY + 12))
-        ctx.addLine(to: CGPoint(x: min(content.maxX, textX + content.width * 0.34), y: album.minY + 12))
+        ctx.move(to: CGPoint(x: textX, y: album.minY + 11))
+        ctx.addLine(to: CGPoint(x: min(content.maxX, textX + content.width * 0.34), y: album.minY + 11))
         ctx.strokePath()
-        ctx.setStrokeColor(UIColor(white: 0.78, alpha: 1).cgColor)
-        ctx.setLineWidth(5)
-        ctx.beginPath()
-        ctx.move(to: CGPoint(x: textX, y: album.minY + 30))
-        ctx.addLine(to: CGPoint(x: min(content.maxX, textX + content.width * 0.24), y: album.minY + 30))
-        ctx.strokePath()
+        if albumSize > 30 {
+            ctx.setStrokeColor(UIColor(white: 0.78, alpha: 1).cgColor)
+            ctx.setLineWidth(5)
+            ctx.beginPath()
+            ctx.move(to: CGPoint(x: textX, y: album.minY + 27))
+            ctx.addLine(to: CGPoint(x: min(content.maxX, textX + content.width * 0.24), y: album.minY + 27))
+            ctx.strokePath()
+        }
 
         // Progreso: pista, parte escuchada y botón.
         let progressY = album.maxY + 16
@@ -498,6 +526,7 @@ final class DesktopView: UIView {
     // MARK: - Dibujo del stickman y los efectos (v3)
 
     private func drawStickman(_ ctx: CGContext, stickman: Stickman) {
+        drawContactShadow(ctx, stickman: stickman)
         drawFigure(
             ctx,
             joints: stickman.displayJoints(),
@@ -506,6 +535,30 @@ final class DesktopView: UIView {
             headRadius: stickman.headRadius,
             alpha: 1
         )
+    }
+
+    /// Sombra de contacto bajo el cuerpo (v5): una elipse suave sobre su
+    /// superficie de apoyo. Despega visualmente al stickman del fondo —
+    /// sobre todo tumbado en el suelo, donde una línea fina se perdía
+    /// contra las colinas — y da la pista de a qué altura está del suelo
+    /// cuando vuela (más pequeña y tenue cuanto más alto).
+    private func drawContactShadow(_ ctx: CGContext, stickman: Stickman) {
+        guard let groundY = stickman.groundY else { return }
+        let bodyBottom = stickman.y + stickman.height
+        let gap = groundY - bodyBottom
+        guard gap > -6 && gap < 190 else { return }
+        let proximity = CGFloat(clampValue(1 - gap / 190, 0.25, 1))
+        let width = CGFloat(max(stickman.width, 44)) * (0.55 + 0.45 * proximity)
+        let rect = CGRect(
+            x: CGFloat(stickman.x + stickman.width / 2) - width / 2,
+            y: CGFloat(groundY) - 3.5,
+            width: width,
+            height: 7
+        )
+        ctx.saveGState()
+        ctx.setFillColor(UIColor.black.withAlphaComponent(0.10 + 0.16 * proximity).cgColor)
+        ctx.fillEllipse(in: rect)
+        ctx.restoreGState()
     }
 
     /// Dibuja una figura completa (torso, extremidades y cabeza) a partir

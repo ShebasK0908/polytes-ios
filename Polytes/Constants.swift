@@ -24,6 +24,17 @@ enum C {
     static let ragdollSolverIterations: Int = 20
     static let ragdollStiffness: Double = 0.85
     static let ragdollBounceFactor: Double = 0.7
+    /// Fricción de un punto del ragdoll apoyado en una superficie (v5):
+    /// fracción de su velocidad horizontal que pierde en cada paso.
+    /// Sin ella, un cuerpo caído se deslizaba y se plegaba sobre sí
+    /// mismo hasta hacerse un nudo.
+    static let ragdollGroundFriction: Double = 0.45
+    /// Cada cuántas iteraciones del solver se reaplican los contactos
+    /// por punto dentro del bucle (estabilidad del reposo sin coste).
+    static let ragdollContactEvery: Int = 4
+    /// Tiempo de contacto estable (varios puntos apoyados y cuerpo
+    /// casi quieto) tras el que un cuerpo en vuelo se da por aterrizado.
+    static let ragdollRestSettleTime: Double = 0.22
 
     static let stickmanWidth: Double = 100 * bodyScale
     static let stickmanHeight: Double = 145 * bodyScale

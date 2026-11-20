@@ -4,6 +4,9 @@ import UIKit
 /// Puente entre SwiftUI y la vista UIKit del escritorio.
 struct DesktopViewRepresentable: UIViewRepresentable {
     let simulation: Simulation
+    /// Con el creador abierto, el escritorio se pausa (v5): no simula
+    /// ni se repinta tras la hoja.
+    var isPaused: Bool = false
 
     func makeUIView(context: Context) -> DesktopView {
         let view = DesktopView()
@@ -13,6 +16,7 @@ struct DesktopViewRepresentable: UIViewRepresentable {
 
     func updateUIView(_ uiView: DesktopView, context: Context) {
         uiView.simulation = simulation
+        uiView.setPaused(isPaused)
     }
 }
 
@@ -31,7 +35,7 @@ struct ContentView: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            DesktopViewRepresentable(simulation: simulation)
+            DesktopViewRepresentable(simulation: simulation, isPaused: showingCreator)
                 .ignoresSafeArea()
 
             Button {

@@ -86,6 +86,60 @@ enum BodyPhysics {
         }
     }
 
+    /// Restricciones anti-pliegue (v5): distancias MÍNIMAS entre pares de
+    /// articulaciones no adyacentes que un cuerpo real no puede cruzar.
+    /// El solver de distancias por sí solo solo conserva longitudes de
+    /// hueso, así que un cuerpo caído podía plegarse sobre sí mismo como
+    /// un pretzel (la cabeza entre los pies, las piernas cruzadas por
+    /// encima del torso). Estos mínimos, aplicados con rigidez suave,
+    /// impiden los cruces imposibles sin rigidizar el cuerpo: solo
+    /// empujan cuando un par se acerca más de lo anatómicamente posible.
+    private static let antiFoldPairs: [(Joint, Joint, Double)] = [
+        (.head, .footR, 50 * C.bodyScale),
+        (.head, .footL, 50 * C.bodyScale),
+        (.handR, .footL, 26 * C.bodyScale),
+        (.handL, .footR, 26 * C.bodyScale),
+        (.footR, .footL, 11 * C.bodyScale),
+        (.handR, .handL, 11 * C.bodyScale),
+        (.kneeR, .kneeL, 8 * C.bodyScale)
+    ]
+
+    static func solveAntiFold(points: [Joint: RagPoint], grabPart: Joint?) {
+        for (jointA, jointB, minDistance) in antiFoldPairs {
+            guard let a = points[jointA], let b = points[jointB] else { continue }
+            let dx = b.pos.x - a.pos.x
+            let dy = b.pos.y - a.pos.y
+            let distance = sqrt(dx * dx + dy * dy)
+            if distance >= minDistance { continue }
+            if distance < 0.0001 {
+                // Par solapado del todo: se separa en horizontal.
+                let push = minDistance / 2
+                if grabPart != jointA { a.pos.x -= CGFloat(push) }
+                if grabPart != jointB { b.pos.x += CGFloat(push) }
+                continue
+            }
+            let deficit = minDistance - distance
+            let dirX = dx / distance
+            let dirY = dy / distance
+            let aFixed = grabPart == jointA
+            let bFixed = grabPart == jointB
+            if aFixed && bFixed { continue }
+            if aFixed {
+                b.pos.x += CGFloat(deficit * dirX * 0.6)
+                b.pos.y += CGFloat(deficit * dirY * 0.6)
+            } else if bFixed {
+                a.pos.x -= CGFloat(deficit * dirX * 0.6)
+                a.pos.y -= CGFloat(deficit * dirY * 0.6)
+            } else {
+                let push = deficit / 2 * 0.6
+                a.pos.x -= CGFloat(push * dirX)
+                a.pos.y -= CGFloat(push * dirY)
+                b.pos.x += CGFloat(push * dirX)
+                b.pos.y += CGFloat(push * dirY)
+            }
+        }
+    }
+
     /// Aplica un giro al cuerpo modificando las posiciones anteriores de los
     /// puntos con un desplazamiento tangencial alrededor del centro de masas.
     /// Es lo que hace que al lanzar el stickman salga girando.

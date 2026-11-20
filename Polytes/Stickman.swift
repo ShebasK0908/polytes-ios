@@ -115,6 +115,10 @@ final class Stickman {
     var flying = false
     var grabPart: Joint?
     var ragPoints: [Joint: RagPoint] = [:]
+    /// Tiempo seguido con el cuerpo apoyado y casi quieto (v5): cuando
+    /// supera el umbral, el vuelo se da por aterrizado y el cuerpo pasa
+    /// a la pose tumbada de recuperación en vez de quedarse en ragdoll.
+    var restContactTimer: Double = 0
     /// Ventanas que el cuerpo está atravesando y con las que no debe
     /// colisionar mientras tanto (al agarrar se vacía la lista).
     var overlapWindowIDs: [UUID] = []
@@ -254,8 +258,15 @@ final class Stickman {
 
         let stepVX = clampValue(Double(dragVelocity.x) * C.frameDuration, -80, 80)
         let stepVY = clampValue(Double(dragVelocity.y) * C.frameDuration, -80, 80)
-        if let part = grabPart, let point = ragPoints[part] {
-            point.old = CGPoint(x: point.pos.x - CGFloat(stepVX), y: point.pos.y - CGFloat(stepVY))
+        // La velocidad del lanzamiento se reparte por todo el cuerpo
+        // (v5): el punto agarrado la recibe entera y los demás un 55 %,
+        // sumada a la velocidad que ya llevaran. Antes solo se movía el
+        // punto agarrado y el solver tenía que arrastrar el resto de
+        // golpe: el cuerpo salía con un latigazo y se estiraba.
+        for (joint, point) in ragPoints {
+            let weight = joint == grabPart ? 1.0 : 0.55
+            point.old.x -= CGFloat(stepVX * weight)
+            point.old.y -= CGFloat(stepVY * weight)
         }
         let spin = clampValue(stepVX * C.ragdollSpinFactor, -0.3, 0.3)
         BodyPhysics.applySpin(points: ragPoints, angularVelocity: spin)
