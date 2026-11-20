@@ -121,7 +121,7 @@ final class DesktopView: UIView {
         for (label, color) in icons {
             let iconRect = CGRect(x: 16, y: y, width: iconSize, height: iconSize)
             ctx.setFillColor(color.withAlphaComponent(0.85).cgColor)
-            ctx.fillPath(roundedRectPath(iconRect, radius: 9))
+            fillPath(ctx, roundedRectPath(iconRect, radius: 9))
 
             let attributes: [NSAttributedString.Key: Any] = [
                 .font: UIFont.systemFont(ofSize: 10),
@@ -141,7 +141,7 @@ final class DesktopView: UIView {
         ctx.saveGState()
         ctx.setShadow(offset: CGSize(width: 0, height: 4), blur: 10, color: UIColor.black.withAlphaComponent(0.35).cgColor)
         ctx.setFillColor(UIColor(white: 0.97, alpha: 1).cgColor)
-        ctx.fillPath(roundedRectPath(rect, radius: 8))
+        fillPath(ctx, roundedRectPath(rect, radius: 8))
         ctx.restoreGState()
 
         // Barra de título
@@ -199,7 +199,7 @@ final class DesktopView: UIView {
         // Botón de inicio
         let startRect = CGRect(x: 10, y: barRect.minY + 8, width: 92, height: CGFloat(C.taskbarHeight) - 16)
         ctx.setFillColor(UIColor(white: 1, alpha: 0.14).cgColor)
-        ctx.fillPath(roundedRectPath(startRect, radius: 7))
+        fillPath(ctx, roundedRectPath(startRect, radius: 7))
         let startAttrs: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 13, weight: .semibold),
             .foregroundColor: UIColor.white
@@ -273,6 +273,12 @@ final class DesktopView: UIView {
 
     private func roundedRectPath(_ rect: CGRect, radius: CGFloat) -> CGPath {
         CGPath(roundedRect: rect, cornerWidth: radius, cornerHeight: radius, transform: nil)
+    }
+
+    /// Rellena el camino actual del contexto (atajo de addPath + fillPath).
+    private func fillPath(_ ctx: CGContext, _ path: CGPath) {
+        ctx.addPath(path)
+        ctx.fillPath()
     }
 
     // MARK: - Tacto
