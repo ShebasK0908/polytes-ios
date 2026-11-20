@@ -138,7 +138,10 @@ struct CreatorView: View {
                                         .overlay(Circle().stroke(Color.secondary.opacity(0.4), lineWidth: 1))
                                     VStack(alignment: .leading) {
                                         Text(stickman.name)
-                                        Text("Energía \(stickman.energy) · Curiosidad \(stickman.curiosity) · Cabeza \(stickman.hollowHead ? "hueca" : "rellena")")
+                                        Text("Energía \(stickman.energy) · Curiosidad \(stickman.curiosity) · Sociabilidad \(stickman.sociability)")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                        Text("Cabeza \(stickman.hollowHead ? "hueca" : "rellena") · Humor: \(stickman.mood.displayName)")
                                             .font(.caption)
                                             .foregroundColor(.secondary)
                                     }

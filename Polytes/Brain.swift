@@ -93,45 +93,13 @@ enum Needs {
     }
 }
 
-/// El cerebro decide por utilidad: puntúa caminar y estar quieto sumando
-/// los factores (energía, curiosidad, stamina, aburrimiento) y sus
-/// inversos, y cambia de estado si una opción supera a la otra con margen.
+/// El cerebro base decide por utilidad: puntúa caminar y estar quieto
+/// sumando los factores (energía, curiosidad, stamina, aburrimiento) y
+/// sus inversos. Desde la v4 la decisión la toma Mind, que reutiliza
+/// estas puntuaciones y la elección de objetivo como su opción base;
+/// las antiguas `update`/`decide` quedaron sin ningún llamante y se
+/// retiraron en la auditoría de la v6.
 enum Brain {
-    static func update(_ s: Stickman, worldWidth: Double, dt: Double) {
-        s.decideCooldown -= dt
-
-        if s.decideCooldown <= 0 {
-            decide(s, worldWidth: worldWidth)
-            s.decideCooldown = C.decideCooldownDefault
-        }
-
-        if s.state == .walk, let target = s.targetX, abs(s.x - target) < 10 {
-            s.targetX = chooseTargetX(s, worldWidth: worldWidth)
-        }
-    }
-
-    static func decide(_ s: Stickman, worldWidth: Double) {
-        let previousState = s.state
-
-        let scoreWalk = score(s, inverted: false)
-        let scoreIdle = score(s, inverted: true)
-
-        if scoreWalk > scoreIdle + C.scoreMargin && !s.holding && !s.flying {
-            s.state = .walk
-            s.targetX = chooseTargetX(s, worldWidth: worldWidth)
-        } else if scoreIdle > scoreWalk {
-            s.state = .idle
-            s.targetX = nil
-        }
-
-        if s.state != previousState {
-            // Transición suave: la animación parte de la pose actual.
-            s.animationFrameIndex = -1
-            s.animationTimer = 0
-            s.basePose = s.currentPose
-        }
-    }
-
     static func score(_ s: Stickman, inverted: Bool) -> Double {
         let factors = [Double(s.energy), Double(s.curiosity), s.stamina, s.boredom]
         var utility: Double = 0

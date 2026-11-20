@@ -84,6 +84,11 @@ enum Combat {
     // MARK: - Represalia contra el dedo
 
     static func startRetaliation(_ s: Stickman, sim: Simulation) {
+        // Si estaba sentado en un borde o tumbado descansando, se
+        // levanta antes de explotar (v6): sin esto el estado cambiaba
+        // a reposo dejando la conducta y la ventana de sentado a
+        // medias, y el cuerpo caía de forma extraña.
+        Mind.endBehavior(s)
         if s.holding {
             // Se zafa del agarre de un tirón hacia arriba.
             s.holding = false
@@ -370,8 +375,15 @@ enum Combat {
     static func castLaser(_ s: Stickman, sim: Simulation, opp: Stickman) {
         let target = opp.centerPoint()
         sim.fireLaser(from: s, to: target)
-        let dir = Double(target.x - s.centerPoint().x) >= 0 ? 1.0 : -1.0
-        sim.applyHit(to: opp, impulse: cgPoint(dir * 12, -4.5), spin: dir * 0.04, from: s)
+        // Si una ventana se interpone, el haz se queda en su borde y
+        // el rival no recibe el golpe (v6): las ventanas también
+        // paran la luz, como ya paraban las bolas de fuego.
+        let start = s.displayJoints()[.head] ?? s.centerPoint()
+        let end = sim.laserEnd(from: start, to: target)
+        if hypot(Double(end.x - target.x), Double(end.y - target.y)) < 34 {
+            let dir = Double(target.x - s.centerPoint().x) >= 0 ? 1.0 : -1.0
+            sim.applyHit(to: opp, impulse: cgPoint(dir * 12, -4.5), spin: dir * 0.04, from: s)
+        }
         s.attackCooldown = 1.15
     }
 

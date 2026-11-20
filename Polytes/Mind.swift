@@ -256,8 +256,13 @@ enum Mind {
             let score = 0.9 + Double(s.sociability) / 100 * 1.6 + Double(s.curiosity) / 100 * 0.6
             consider(.follow, score, target: other)
         }
-        // Acercarse a mirar el cursor (y tocarlo).
+        // Acercarse a mirar el cursor (y tocarlo). Exige un dedo
+        // ACTIVO (v6): con el último punto conocido, el stickman
+        // caminaba hasta un punto vacío y estiraba la mano hacia la
+        // nada — el mismo defecto de «al aire» que la v5 corrigió en
+        // la represalia, pero que aquí había quedado.
         if s.mood != .irritated && s.mood != .scared,
+           sim.activeFingerPoint(for: s) != nil,
            cursorNear(s, sim: sim, radius: 340) {
             consider(.watchCursor, Double(s.curiosity) / 100 * 2.6 + 0.4)
         }
@@ -391,7 +396,9 @@ enum Mind {
             }
 
         case .watchCursor:
-            guard let point = sim.fingerTargetPoint(for: s), s.behaviorTimer > 0 else {
+            // Solo dedos activos (v6): si el usuario levanta el dedo,
+            // la conducta termina en vez de perseguir su recuerdo.
+            guard let point = sim.activeFingerPoint(for: s), s.behaviorTimer > 0 else {
                 endBehavior(s)
                 return
             }

@@ -717,9 +717,13 @@ final class DesktopView: UIView {
 
             // Primero se intenta agarrar un stickman por su articulación
             // más cercana al dedo, entre los que están libres (uno ya
-            // agarrado por otro dedo no puede agarrarse dos veces).
+            // agarrado por otro dedo no puede agarrarse dos veces). A
+            // quien otro stickman lleva en alto tampoco se le puede
+            // agarrar (v6): está «en manos» de su portador, como ya lo
+            // trataban los golpes, y el dedo y el portador se peleaban
+            // por el mismo cuerpo.
             var best: (stickman: Stickman, joint: Joint, distance: Double)?
-            for stickman in simulation.stickmen where !stickman.holding {
+            for stickman in simulation.stickmen where !stickman.holding && stickman.carriedByID == nil {
                 let joints = stickman.displayJoints()
                 if let nearest = BodyPhysics.nearestJoint(in: joints, to: point) {
                     if best == nil || nearest.distance < best!.distance {

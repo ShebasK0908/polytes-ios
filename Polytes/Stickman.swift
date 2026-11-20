@@ -19,6 +19,19 @@ enum Mood {
     case bored
     case irritated
     case scared
+
+    /// Nombre para la interfaz (la lista de escena del creador, v6:
+    /// hasta ahora el humor no se mostraba en ninguna parte).
+    var displayName: String {
+        switch self {
+        case .content: return "contento"
+        case .happy: return "feliz"
+        case .curious: return "curioso"
+        case .bored: return "aburrido"
+        case .irritated: return "irritado"
+        case .scared: return "asustado"
+        }
+    }
 }
 
 /// Conducta en curso elegida por el cerebro extendido (v4). Los datos
@@ -240,6 +253,12 @@ final class Stickman {
         // Agarrarlo corta el vuelo con motor y cancela la carga del puño.
         cutPoweredFlight()
         chargingPunch = false
+        // Y cancela el dash de supervelocidad (v6): el temporizador del
+        // dash no corre en ragdoll, y sin esto, al soltarlo, el dash se
+        // reanudaba de golpe a mitad de vuelo.
+        dashTimer = 0
+        dashVelocityX = 0
+        dashHitTargetID = nil
         seedRagdoll()
         flying = false
         holding = true

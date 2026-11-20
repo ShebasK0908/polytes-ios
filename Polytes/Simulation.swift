@@ -68,15 +68,28 @@ final class Simulation: ObservableObject {
 
     // MARK: - Escenario
 
+    /// Orientación con la que se creó el mundo: si el primer layout
+    /// llegara en vertical (antes de que el teléfono gire a apaisado),
+    /// las ventanas nacerían con proporciones de vertical y se
+    /// quedarían así para siempre; al detectar el cambio de
+    /// orientación se recoloca el reparto inicial (v6).
+    private var setupWasLandscape = true
+
     func setBounds(_ newBounds: CGRect) {
         guard newBounds.width > 0, newBounds.height > 0 else { return }
         let sizeChanged = newBounds.size != bounds.size
         bounds = newBounds
         if !didSetupWorld {
             didSetupWorld = true
+            setupWasLandscape = newBounds.width >= newBounds.height
             setupDefaultWindows()
             addStickman(name: "Polytes", color: .black, hollowHead: true)
         } else if sizeChanged {
+            let isLandscape = newBounds.width >= newBounds.height
+            if isLandscape != setupWasLandscape {
+                setupWasLandscape = isLandscape
+                setupDefaultWindows()
+            }
             clampWindowsToWorld()
             for s in stickmen {
                 s.x = clampValue(s.x, 0, max(0, workRect.width - s.width))
@@ -220,6 +233,18 @@ final class Simulation: ObservableObject {
             }
             if s.flightAttackTargetID == id {
                 s.cutPoweredFlight()
+            }
+            // La mente también lo referencia: como objetivo de una
+            // conducta (seguir, ayudar, huir) y como agresor recordado.
+            if s.behaviorTargetID == id {
+                s.behaviorTargetID = nil
+                if s.behavior == .follow || s.behavior == .helpUp || s.behavior == .flee {
+                    s.behavior = .none
+                }
+            }
+            if s.lastAttackerID == id {
+                s.lastAttackerID = nil
+                s.lastAttackerTimer = 0
             }
         }
         fireballs.removeAll { $0.ownerID == id }
@@ -508,13 +533,61 @@ final class Simulation: ObservableObject {
 
     /// Dispara el láser desde los ojos: el haz es instantáneo y se
     /// dibuja desvaneciéndose; el efecto sobre el objetivo lo aplica
-    /// quien dispara (o nadie, contra el dedo).
+    /// quien dispara (o nadie, contra el dedo). Las ventanas paran el
+    /// haz (v6): se dibuja hasta la primera que se interponga, con sus
+    /// chispas allí, igual que las bolas de fuego ya chocaban con ellas.
     func fireLaser(from s: Stickman, to point: CGPoint) {
         s.setActionPose(Animations.castPose, duration: 0.3)
         let start = s.displayJoints()[.head] ?? s.centerPoint()
+        let end = laserEnd(from: start, to: point)
         let color = s.color == .black ? UIColor(red: 1, green: 0.3, blue: 0.25, alpha: 1) : s.color
-        lasers.append(Laser(from: start, to: point, life: 0.22, maxLife: 0.22, color: color))
-        spawnSparks(at: point, count: 4, color: color)
+        lasers.append(Laser(from: start, to: end, life: 0.22, maxLife: 0.22, color: color))
+        spawnSparks(at: end, count: 4, color: color)
+    }
+
+    /// El punto donde un haz desde `start` hacia `end` se detiene: la
+    /// entrada en la primera ventana que se interponga (método de
+    /// losas sobre el segmento), o el propio `end` si llega libre.
+    /// Las ventanas que ya contienen el origen no cuentan: el stickman
+    /// está «delante» de ellas, no detrás.
+    func laserEnd(from start: CGPoint, to end: CGPoint) -> CGPoint {
+        let dx = Double(end.x - start.x)
+        let dy = Double(end.y - start.y)
+        var bestT = 1.0
+        for window in windows {
+            let rect = window.rect
+            if rect.contains(start) { continue }
+            var entry = 0.0
+            var exit = 1.0
+            var possible = true
+            if abs(dx) < 1e-9 {
+                if Double(start.x) < Double(rect.minX) || Double(start.x) > Double(rect.maxX) {
+                    possible = false
+                }
+            } else {
+                var t1 = (Double(rect.minX) - Double(start.x)) / dx
+                var t2 = (Double(rect.maxX) - Double(start.x)) / dx
+                if t1 > t2 { swap(&t1, &t2) }
+                entry = max(entry, t1)
+                exit = min(exit, t2)
+            }
+            if abs(dy) < 1e-9 {
+                if Double(start.y) < Double(rect.minY) || Double(start.y) > Double(rect.maxY) {
+                    possible = false
+                }
+            } else {
+                var t1 = (Double(rect.minY) - Double(start.y)) / dy
+                var t2 = (Double(rect.maxY) - Double(start.y)) / dy
+                if t1 > t2 { swap(&t1, &t2) }
+                entry = max(entry, t1)
+                exit = min(exit, t2)
+            }
+            if possible && entry <= exit && entry >= 0 && entry < bestT {
+                bestT = entry
+            }
+        }
+        if bestT >= 1 { return end }
+        return CGPoint(x: start.x + CGFloat(dx * bestT), y: start.y + CGFloat(dy * bestT))
     }
 
     private func burstFireball(at point: CGPoint) {
@@ -557,6 +630,7 @@ final class Simulation: ObservableObject {
         var remainingFireballs: [Fireball] = []
         for var fireball in fireballs {
             fireball.life -= dt
+            let previousPos = fireball.pos
             fireball.pos.x += fireball.vel.x * CGFloat(dt)
             fireball.pos.y += fireball.vel.y * CGFloat(dt)
             emitParticle(
@@ -580,7 +654,11 @@ final class Simulation: ObservableObject {
                 // Las ventanas son sólidos también para el fuego (antes
                 // las bolas las atravesaban como si no existieran), y el
                 // mundo tiene bordes: fuera de él, la bola se apaga.
-                for window in windows where window.rect.contains(fireball.pos) {
+                // Solo cuenta ENTRAR en la ventana (v6): si el stickman
+                // dispara «delante» de una ventana, su punto de salida
+                // ya está dentro del rectángulo y la bola estallaba al
+                // nacer, en su cara, sin haber viajado.
+                for window in windows where window.rect.contains(fireball.pos) && !window.rect.contains(previousPos) {
                     exploded = true
                     break
                 }

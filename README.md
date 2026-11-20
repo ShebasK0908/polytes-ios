@@ -20,7 +20,7 @@ El suelo base es el borde superior de la barra de tareas: los stickmen pasean so
 - **Interacción**: el dedo hace de cursor, como el ratón en el original. Se agarra de la articulación más cercana conservando el desplazamiento entre el dedo y la articulación (el cuerpo no salta al tocarlo), el punto agarrado sigue al dedo 1:1 sin suavizado (con las muestras coalescidas de los eventos táctiles) y la velocidad de lanzamiento se mide del movimiento real del dedo con marcas de tiempo: si el dedo se detiene antes de soltar, el lanzamiento sale sin fuerza. Varios dedos pueden agarrar a la vez, incluso a stickmen distintos (un stickman ya agarrado no admite un segundo agarre).
 - **Cerebro** (`Brain.swift`): necesidades de *stamina* y *aburrimiento* que suben y bajan según el estado (caminar cansa y entretiene; estar quieto recupera y aburre) y decisión por utilidad cada 3 s entre caminar a un objetivo aleatorio a ≥ 300 pt (el escritorio apaisado da para paseos más largos) o quedarse en reposo, con el mismo margen de decisión del original.
 - **Personalidad** (`Brain.swift`): determinista a partir del nombre (semilla SHA-256 del nombre): energía y curiosidad entre 1 y 100. La cabeza hueca suma +20 % de energía; los colores fríos (tono 120–240°) potencian la curiosidad y los cálidos la energía; los colores acromáticos no dan bonus. El mismo nombre siempre produce el mismo stickman.
-- **Creador**: nombre, color (con paleta rápida), cabeza hueca o rellena y vista previa en vivo con las barras de energía y curiosidad. Se pueden tener varios stickmen a la vez, cada uno con su personalidad, y eliminarlos desde la lista.
+- **Creador**: nombre, color (con paleta rápida), cabeza hueca o rellena y vista previa en vivo con las barras de energía, curiosidad y sociabilidad. Se pueden tener varios stickmen a la vez, cada uno con su personalidad, y eliminarlos desde la lista (que desde la v6 también muestra el humor de cada uno).
 
 Paso de simulación fijo de 32 ms (como el original) acumulado desde el `CADisplayLink`; el dibujo va a la frecuencia de la pantalla.
 
@@ -101,4 +101,21 @@ El usuario grabó la v4 en su iPhone y señaló seis defectos; todos están corr
 ./package-ipa.sh    # genera build/Polytes.ipa
 ```
 
-En GitHub, el workflow «Build iOS IPA (sin firmar)» hace lo mismo en un runner macOS y publica la `.ipa` en la release `app-v5`.
+En GitHub, el workflow «Build iOS IPA (sin firmar)» hace lo mismo en un runner macOS y publica la `.ipa` en la release `app-v6`.
+
+## Auditoría de la v6
+
+Revisión completa del proyecto (código, lógica, experiencia y archivos) buscando cualquier cosa rara, no solo lo que fallara al compilar. Corregido:
+
+- **El láser atravesaba las ventanas** (pendiente anotado desde la v4): ahora el haz se corta en la primera ventana que se interponga, con las chispas en su borde, y si hay una ventana entre el tirador y su rival, el rival no recibe el golpe. Las ventanas que ya contienen el origen no cuentan (el stickman está «delante» de ellas). Las represalias contra el dedo también dibujan el haz cortado.
+- **La bola de fuego estallaba al nacer** cuando el stickman disparaba «delante» de una ventana: su punto de salida ya está dentro del rectángulo de la ventana y la comprobación de impacto era «estar dentro». Ahora solo cuenta *entrar* en la ventana.
+- **Se podía agarrar a un stickman que otro llevaba en alto**: los golpes ya lo trataban como intocable, pero el dedo sí podía agarrarlo, y el dedo y el portador se peleaban por el mismo cuerpo (con el lanzamiento del portador modificando un cuerpo agarrado). El agarre ahora excluye a los cargados.
+- **La represalia podía explotar estando sentado o tumbado**: cambiaba el estado a reposo dejando la conducta de sentado y su ventana a medias. Ahora primero se levanta (`Mind.endBehavior`) y luego explota.
+- **Mirar el cursor perseguía un dedo ya levantado**: la conducta usaba el último punto conocido (hasta 4 s), el mismo defecto de «al aire» que la v5 corrigió en la represalia. Ahora exige un dedo activo, tanto al puntuar la conducta como al ejecutarla; si el dedo se levanta, la conducta termina.
+- **Agarrar a mitad de dash dejaba el dash congelado** y se reanudaba de golpe al soltar (el temporizador no corre en ragdoll): agarrar ahora cancela el dash.
+- **`removeStickman` no limpiaba las referencias de la mente** de los demás (objetivo de conducta y agresor recordado): se auto-resolvían al paso siguiente, pero quedaban colgadas; ahora se limpian al eliminar.
+- **Si el mundo se creara en vertical** (un primer layout antes de que el teléfono gire a apaisado), las ventanas nacerían con las proporciones de vertical y se quedarían así: al detectar el cambio de orientación se recoloca el reparto inicial.
+- **El humor no se mostraba en ninguna parte** (pendiente anotado desde la v4): la lista «En escena» del creador ahora muestra la sociabilidad y el humor de cada stickman (contento, feliz, curioso, aburrido, irritado, asustado). Es la foto del momento de abrir el creador, porque el escritorio se pausa mientras está abierto.
+- **Código muerto retirado**: `Brain.update` y `Brain.decide` no tenían ningún llamante desde que Mind tomó las decisiones en la v4; quedan la puntuación y la elección de objetivo, que Mind reutiliza.
+
+Observaciones revisadas y dejadas como están, por ser decisiones de diseño coherentes: el límite de 330 pt para sentarse en una ventana coincide con el alcance real del salto de trepada (velocidad máxima 900 → ≈335 pt útiles), así que no es un número arbitrario; se pueden crear dos stickmen con el mismo nombre (y por tanto la misma personalidad: es la regla del diseño, y la propia interfaz lo explica); no hay tope de stickmen en escena, como tampoco lo había en el original; y un stickman de color casi blanco se ve mal sobre las ventanas blancas, pero es el color que elige el usuario.
