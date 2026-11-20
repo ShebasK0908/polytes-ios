@@ -1,0 +1,37 @@
+name: Build iOS IPA (sin firmar)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Compilar
+        run: |
+          chmod +x build.sh package-ipa.sh
+          ./build.sh
+
+      - name: Empaquetar IPA
+        run: ./package-ipa.sh
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: Polytes-ipa
+          path: build/Polytes.ipa
+
+      - name: Publicar en release app-v1
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view app-v1 >/dev/null 2>&1 || gh release create app-v1 --title "Polytes" --notes "Polytes para iPhone: mascota de escritorio con física (recreación propia para iOS del diseño de Polytes). IPA sin firmar: instalar con SideStore o AltStore."
+          gh release upload app-v1 build/Polytes.ipa --clobber
