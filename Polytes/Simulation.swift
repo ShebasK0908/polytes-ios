@@ -47,22 +47,31 @@ final class Simulation: ObservableObject {
         }
     }
 
+    /// Reparto inicial pensado para el escritorio apaisado de la v2: las
+    /// tres ventanas quedan separadas por huecos anchos, a alturas
+    /// escalonadas en la mitad superior, y el suelo junto a la barra
+    /// inferior queda libre de punta a punta para caminar.
     private func setupDefaultWindows() {
         let w = workRect.width
         let h = workRect.height
+        let winW = min(260, max(200, w * 0.27))
+        let winH = min(130, max(105, h * 0.34))
         windows = [
             DesktopWindow(
-                rect: CGRect(x: 24, y: h * 0.16, width: min(210, w * 0.5), height: 132),
+                // A la izquierda, dejando libres los iconos del escritorio.
+                rect: CGRect(x: max(68, w * 0.06), y: max(56, h * 0.14), width: winW, height: winH),
                 title: "Explorador",
                 barColor: UIColor(red: 0.36, green: 0.55, blue: 0.85, alpha: 1)
             ),
             DesktopWindow(
-                rect: CGRect(x: max(24, w - 214), y: h * 0.38, width: min(190, w * 0.48), height: 118),
+                // A la derecha, un poco más pequeña y alta.
+                rect: CGRect(x: w * 0.68, y: max(50, h * 0.11), width: winW * 0.92, height: winH * 0.92),
                 title: "Notas",
                 barColor: UIColor(red: 0.95, green: 0.75, blue: 0.30, alpha: 1)
             ),
             DesktopWindow(
-                rect: CGRect(x: 44, y: h * 0.58, width: min(230, w * 0.55), height: 124),
+                // En el centro, más baja: un peldaño entre las otras dos.
+                rect: CGRect(x: w * 0.37, y: h * 0.46, width: winW, height: winH * 0.96),
                 title: "Música",
                 barColor: UIColor(red: 0.65, green: 0.45, blue: 0.85, alpha: 1)
             )
@@ -99,9 +108,12 @@ final class Simulation: ObservableObject {
 
     @discardableResult
     func addStickman(name: String, color: UIColor, hollowHead: Bool) -> Stickman {
-        let offset = Double(stickmen.count % 3 - 1) * 36
-        let spawnX = Double(workRect.midX) - C.stickmanWidth / 2 + offset
-        let spawnY = Double(workRect.midY) - C.stickmanHeight / 2
+        // Aparecen de pie sobre el suelo, repartidos por el ancho del
+        // escritorio (30 %, 50 % y 70 %) para no amontonarse.
+        let slot = Double(stickmen.count % 3)
+        let centerX = Double(workRect.width) * (0.30 + 0.20 * slot)
+        let spawnX = clampValue(centerX - C.stickmanWidth / 2, 0, max(0, Double(workRect.width) - C.stickmanWidth))
+        let spawnY = Double(workRect.maxY) - C.stickmanHeight
         let stickman = Stickman(
             name: name,
             color: color,

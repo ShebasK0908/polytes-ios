@@ -29,9 +29,9 @@ jobs:
           name: Polytes-ipa
           path: build/Polytes.ipa
 
-      - name: Publicar en release app-v1
+      - name: Publicar en release app-v2
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view app-v1 >/dev/null 2>&1 || gh release create app-v1 --title "Polytes" --notes "Polytes para iPhone: mascota de escritorio con física (recreación propia para iOS del diseño de Polytes). IPA sin firmar: instalar con SideStore o AltStore."
-          gh release upload app-v1 build/Polytes.ipa --clobber
+          gh release view app-v2 >/dev/null 2>&1 || gh release create app-v2 --title "Polytes" --notes "Polytes para iPhone: mascota de escritorio con física (recreación propia para iOS del diseño de Polytes). v2: escritorio apaisado tipo juego, más espacioso y stickmen más pequeños (escala 0,6). IPA sin firmar: instalar con SideStore o AltStore."
+          gh release upload app-v2 build/Polytes.ipa --clobber

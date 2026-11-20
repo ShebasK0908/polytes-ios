@@ -125,14 +125,15 @@ enum Brain {
         return utility
     }
 
-    /// Objetivo de paseo: un punto aleatorio del mundo, a 200 pt o más
-    /// de la posición actual (con margen reducido si el mundo es estrecho).
+    /// Objetivo de paseo: un punto aleatorio del mundo, a 300 pt o más
+    /// de la posición actual (el escritorio apaisado de la v2 es ancho y
+    /// da para paseos largos; con margen reducido si el mundo es estrecho).
     static func chooseTargetX(_ s: Stickman, worldWidth: Double) -> Double {
         let minX = C.stickmanWidth
         let maxX = worldWidth - C.stickmanWidth
         if maxX <= minX { return s.x }
 
-        let minDistance = min(200, (maxX - minX) / 2)
+        let minDistance = min(300, (maxX - minX) / 2)
         for _ in 0..<60 {
             let target = Double.random(in: minX...maxX)
             if abs(target - s.x) >= minDistance {
